@@ -41,10 +41,15 @@ class SeedHolder():
         seedsGroups = []
         while not self.seeds == []:
             tmp = []
-            for i in range(seedsPerGroup):
-                tmp.append(self.seeds[0])
-                self.seeds.pop(0)
-            seedsGroups.append(tmp)
+            if len(self.seeds) < seedsPerGroup:
+                for i in range(len(self.seeds)):
+                    seedsGroups[i].append(self.seeds[i])
+                self.seeds.clear()
+            else:
+                for i in range(seedsPerGroup):      
+                    tmp.append(self.seeds[0])
+                    self.seeds.pop(0)
+                seedsGroups.append(tmp)
         return seedsGroups
             
         
@@ -77,19 +82,21 @@ class Searcher(ThreadController):
     #----------------------------------------------------------------------
     def run(self):
         """overwrite run() method"""
-        seeds_sum = 0      #total seed index
+        seeds_sum = 0     #total seed index
         seed_current = 0  #current seed index
-        seed_set = set()   #a set to store unique urls
+        seed_set = set()  #a set to store unique urls
         seed_infos = {}
-        for i in range(len(self.seeds)):          
-            seed_set.add(self.seeds[i])
-            
+      
         validator = UrlValidator()
+        threadEvent = Event()
+        
+        for i in range(len(self.seeds)):          
+            seed_set.add(self.seeds[i])        
         
         while not self.thread_stop:
             while seeds_sum < Configure.TOTAL_URL_LIMIT:
                 if seed_current < len(self.seeds):
-                    Event().wait(3)
+                    threadEvent.wait(0.1)
                     try:
                         if seed_current == 0:
                             req = requests.get(self.seeds[seed_current], timeout = 120)
@@ -134,8 +141,8 @@ class Searcher(ThreadController):
                         if len(seed_infos) >= Configure.OUTPUT_FREQUENCY:
                             data_txt = open(r'data.txt', mode='a+', buffering= -1)
                             for seed_info in seed_infos.items():
-                                data_txt.write("标题: " + seed_info[0])
-                                data_txt.write("Url: " + seed_info[1] + '\n')
+                                data_txt.write("标题: " + seed_info[0].strip() + " ")
+                                data_txt.write("Url: " + seed_info[1].strip() + '\n')
                             data_txt.flush()
                             data_txt.close()
                             seed_infos.clear()
@@ -161,8 +168,8 @@ class Searcher(ThreadController):
 class Configure: 
     """restore the initial parameters"""
     SINGLE_URL_RECURSION_LIMIT = 50
-    TOTAL_URL_LIMIT = 1000
-    THREAD_LIMIT = 22
+    TOTAL_URL_LIMIT = 2000
+    THREAD_LIMIT = 3
     OUTPUT_FREQUENCY = 100
 
     #----------------------------------------------------------------------
