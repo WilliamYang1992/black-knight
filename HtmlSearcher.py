@@ -277,66 +277,6 @@ if __name__ == '__main__':
     print('\n')
     
         
-        
-           
-   
-    
-    
-        
-    
-    
-        
-    
-    
-        
-        
-        
-    
-    
-        
-        
-        
-    
-    
-        
-        
-        
-        
-    
-    
-        
-        
-    
-    
 
-
-#if __name__ == '__main__':
-    #while sum_seeds < total_limits:
-        #if sum_seeds < len(seeds):
-            #time.sleep(0.5)
-            #try: 
-                #req = requests.get(seeds[sum_seeds])
-            #except(Exception) as e:
-                #print(e)         
-            #soup = BeautifulSoup(req.content, "html5lib")
-            #try:      
-                #title = soup.head.title.string
-                #print('БъЬт: ' + title.encode('GBK', 'ignore').decode('GBK', 'ignore'))
-                #print('url: ' + seeds[sum_seeds] + '\n')
-                #urls = soup.find_all("a", limit= single_seed_limits)
-            #except(Exception) as e:
-                #print(e)
-            #for url in urls:
-                #if url.has_attr('href'):        
-                    #seed = url.attrs['href']
-                #else:
-                    #continue
-                #if seed.startswith('http'):
-                    #seeds.append(seed)
-            #sum_seeds += 1
-        #else:
-            #print(seeds)
-            #break
-    
     
     
