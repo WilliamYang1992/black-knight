@@ -1,6 +1,6 @@
 #encoding:GBK
 
-#VERSION = 0.81
+#VERSION = 0.82
 #AUTHOR: William Yang
 #EMAIL: 505741310@qq.com
 #WEIBO: weibo.com/yyb1105
@@ -244,6 +244,8 @@ class Searcher(ThreadController):
                             continue
                     except(Exception) as e:
                         print(e)
+                        with open("error_info.txt", 'a', buffering= 1) as err:
+                            err.write("Error: run()\n" + e + '\n\n')                        
                         seed_current += 1
                         continue
                     
@@ -260,36 +262,37 @@ class Searcher(ThreadController):
                     except(AttributeError):
                         print("AttributeError")
                         seed_current += 1
+                        with open("error_info.txt", 'a', buffering= 1) as err:
+                            err.write("AttributeError: run()\n" + e + "\n" + "Url: " + seed_url + '\n\n')
                         continue
                     except(UnicodeEncodeError):
                         print("UnicodeError")
                         seed_current += 1
+                        with open("error_info.txt", 'a', buffering= 1) as err:
+                            err.write("UnicodeError: run()\n" + e + "\n" + "Url: " + seed_url + '\n\n')                         
                         continue
                     #some url doesn't has title
-                    except(TypeError):
+                    except(TypeError) as e:
                         print("TypeError")
                         seed_current += 1
+                        with open("error_info.txt", 'a', buffering= 1) as err:
+                            err.write("TypeError: run()\n" + e + "\n" + "Url: " + seed_url + '\n\n')                        
                         continue                    
                         
                     try:
                         urls = soup.find_all("a", limit= self.
                                              single_url_search_limit)
                     except(Exception) as e:
-                        print(e)
+                        with open("error_info.txt", 'a', buffering= 1) as err:
+                            err.write("Error: run()\n" + e + '\n\n')
                         seed_current += 1
                         continue
                     
                     #add data to dict
-                    try:
-                        exporter.addData(seed_url, seed_title)
-                    except(Exception) as e:
-                        error_info = open(r'.\error_info.txt', 'w+', -1)
-                        error_info.write(e)
-                        error_info.close()
+                    exporter.addData(seed_url, seed_title)
                     #export url data, "seeds_sum" for recording order
                     exporter.export(seeds_sum)                      
                                          
-                    
                     new_urls = validator.CheckUrls(self.seeds[seed_current], urls)
                     
                     #check duplicate url. if it is unique then added to seed_set
@@ -367,19 +370,25 @@ class UrlValidator:
             count = len(urls)
             try:
                 return sorted(urls)[count // 2:count // 2 + count // 10 + 10]
-            except(IndexError):
+            except(IndexError) as e:
+                with open("error_info.txt", 'a', buffering= 1) as err:
+                    err.write("IndexError: \n" + e + '\n\n')                
                 return sorted(urls)
         elif Configure.OBTAIN_URL_STYLE == Configure.BY_RANDOM:
             count = len(urls)
             try:
                 return random.sample(urls, count // 10 + 1)
-            except(ValueError):
+            except(ValueError) as e:
+                with open("error_info.txt", 'a', buffering= 1) as err:
+                    err.write("ValueError: \n" + e + '\n\n')                 
                 return urls
         elif Configure.OBTAIN_URL_STYLE == Configure.BY_ORDER:
             count = len(urls)
             try:    
                 return urls[0:count // 10 + 1]
-            except(IndexError):
+            except(IndexError) as e:
+                with open("error_info.txt", 'a', buffering= 1) as err:
+                    err.write("IndexError: \n" + e + '\n\n')                  
                 return urls
         
         
@@ -496,12 +505,13 @@ class DataExporter:
                 data_txt.write(seed_info[0])
                 data_txt.write("\n")
                 self.output_position += 1
-        except(IOError):
+        except(IOError) as e:
             print("Can not open or create urldata file!")
+            with open("error_info.txt", 'a', buffering= 1) as err:
+                err.write("IOError: _toTXT()\n" + e + '\n\n')             
         except(UnicodeEncodeError) as e:
-            print(e)
-        except(Exception) as e:
-            print(e)
+            with open("error_info.txt", 'a', buffering= 1) as err:
+                err.write("UnicodeEncodeError: _toTXT()\n" + e + '\n\n')           
         finally:
             self.output_position = seeds_sum + 1
             data_txt.flush()
@@ -513,7 +523,9 @@ class DataExporter:
         """export data to csv format"""
         try:
             data_csv = open(self.urldata_file_name + '.csv', 'a', buffering= 1)
-        except(IOError):
+        except(IOError) as e:
+            with open("error_info.txt", 'a', buffering= 1) as err:
+                err.write("IOError: _toCSV()\n" + e + '\n\n')            
             print("Can't not open or create data.csv")
         try:
             writer = csv.writer(data_csv)
@@ -526,7 +538,8 @@ class DataExporter:
                 writer.writerow(csvRow)
                 self.output_position += 1
         except(Exception) as e:
-            print(e)
+            with open("error_info.txt", 'a', buffering= 1) as err:
+                err.write("Error: _toCSV()\n" + e + '\n\n')
         finally:
             self.output_position = seeds_sum + 1
             data_csv.flush()
@@ -548,11 +561,14 @@ class DataExporter:
                     (seed_info[1], seed_info[0]))
                 cur.connection.commit()           
         except(pymysql.err.InternalError) as e:
-            print(e)
+            with open("error_info.txt", 'a', buffering= 1) as err:
+                err.write("pymysql.err.InternalError: _toMySQL()\n" + e + '\n\n')
         except(pymysql.err.IntegrityError) as e:
-            print(e)
+            with open("error_info.txt", 'a', buffering= 1) as err:
+                err.write("pymysql.err.IntegrityError: _toMySQL()\n" + e + '\n\n')
         except(pymysql.err.DataError) as e:
-            print(e)
+            with open("error_info.txt", 'a', buffering= 1) as err:
+                err.write("pymysql.err.DataError: _toMySQL()\n" + e + '\n\n')
         finally:
             cur.close()
             conn.close()
