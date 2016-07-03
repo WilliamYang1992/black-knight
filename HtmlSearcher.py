@@ -1,23 +1,28 @@
-#encoding:"GBK"
+#encoding:GBK
 
-#VERSION = 0.6
+#VERSION = 0.81
 #AUTHOR: William Yang
-#Email: 505741310@qq.com
+#EMAIL: 505741310@qq.com
 #WEIBO: weibo.com/yyb1105
 
 import os
 import re
+import csv
 import time
 import math
 import uuid
+import lxml
+import html
 import codecs
 import random
 import urllib
 import pickle
+import pymysql
 import sqlite3
 import logging
 import html5lib
 import requests
+import threading
 from threading import Event
 from threading import Thread
 from bs4 import BeautifulSoup
@@ -40,7 +45,7 @@ class Configure:
     HTML_MODE = 8
     OUTPUT_PATH = r'.\\'
     ###############################
-    OUTPUT_STYLE = TXT_MODE
+    OUTPUT_STYLE = MYSQL_MODE
     ###############################
     
     #OUTPUT_NAME_STYLE
@@ -76,11 +81,11 @@ class Configure:
     ###############################
     
     #THREAD Setting
-    SINGLE_URL_SEARCH_LIMIT = 100
-    TOTAL_URL_LIMIT = 200
-    THREAD_LIMIT = 3
-    OUTPUT_FREQUENCY = 1
-    THREAD_WAIT = 0    
+    SINGLE_URL_SEARCH_LIMIT = 200
+    TOTAL_URL_LIMIT = 1000
+    THREAD_LIMIT = 22
+    OUTPUT_FREQUENCY = 20
+    THREAD_WAIT = 0
     
     SEEDLIST = ["http://www.hao123.com",
                 "http://www.sina.com",
@@ -92,23 +97,24 @@ class Configure:
                 "http://bbs.tianya.cn",
                 "http://www.sohu.com", 
                 "http://www.jb51.net",
-                "http://tieba.baidu.com",
+                "http://www.kadang.com",
                 "http://www.mtime.com",
                 "http://www.piaohua.com",
-                "http://www.jd.com",
+                "http://www.ithome.com",
                 "http://www.python.org",
                 "http://www.taobao.com",
                 "http://www.pc6.com",
                 "http://www.yinyuetai.com",
-                "http://www.jd.com",
-                "http://news.qq.com",
-                "http://lol.qq.com",
+                "http://www.youku.com",
+                "http://www.pythontab.com/",
+                "http://lol.qq.com/main.shtml",
                 "http://lvyou.baidu.com"]
     SEEDLIST1 = ["http://www.gamersky.com"]
-    SEEDLIST2 = ["http://lol.qq.com"]
-    SEEDLIST3 = ["http://lol.qq.com",
-                 "http://www.jd.com",
+    SEEDLIST2 = ["http://lol.qq.com/main.shtml"]
+    SEEDLIST3 = ["http://lol.qq.com/main.shtml",
+                 "http://bbs.tianya.cn",
                  "http://www.gamersky.com"]
+    SEEDLIST5 = ["http://news.qq.com"]
     
     #----------------------------------------------------------------------
     def __init__(self):
@@ -173,6 +179,7 @@ class ThreadController(Thread):
         
         
     def generateThreads(self):
+        threading.stack_size(8388608)
         seedHolder =  SeedHolder(self.seedList)
         print("Start searching" + "\n")
         print("Threads: " + str(Configure.THREAD_LIMIT) + "\n")
@@ -195,10 +202,14 @@ class Searcher(ThreadController):
         ThreadController.__init__(self)
         self.seeds = seeds
         self.thread_stop = False
+        self.total_url_limit = Configure.TOTAL_URL_LIMIT
+        self.thread_wait = Configure.THREAD_WAIT
+        self.single_url_search_limit = Configure.SINGLE_URL_SEARCH_LIMIT
         
     #----------------------------------------------------------------------
     def run(self):
         """overwrite run() method"""
+        global url_count
         seeds_sum = 0     #total valid seed index
         seed_current = 0  #current seed index
         seed_set = set()  #a set to store unique urls
@@ -213,10 +224,10 @@ class Searcher(ThreadController):
             seed_set.add(self.seeds[i])        
         
         while not self.thread_stop:
-            while seeds_sum < Configure.TOTAL_URL_LIMIT:
+            while seeds_sum < self.total_url_limit:
                 threadEvent.wait(Configure.THREAD_WAIT)
                 if seed_current < len(self.seeds):
-                    threadEvent.wait(Configure.THREAD_WAIT)
+                    threadEvent.wait(self.thread_wait)
                     try:
                         if seed_current == 0:
                             req = requests.get(self.seeds[seed_current],
@@ -225,7 +236,9 @@ class Searcher(ThreadController):
                             req = requests.get(self.seeds[seed_current],
                                                timeout = 10)
                         if req.status_code is 200 :
-                            soup = BeautifulSoup(req.content, "html5lib")
+                            #soup = BeautifulSoup(req.content, "html5lib")
+                            #soup = BeautifulSoup(req.content, "lxml")
+                            soup = BeautifulSoup(req.content, "html.parser")
                         else:
                             seed_current += 1
                             continue
@@ -239,17 +252,17 @@ class Searcher(ThreadController):
                     seed_url = "None"
                         
                     try:
-                        seed_title = soup.head.title.string
+                        seed_title = soup.title.string
                         seed_url= self.seeds[seed_current]
                         print("TRY: " + seed_url)
                         print('TITLE: ' + seed_title)
                         print('URL: ' +  seed_url+ '\n')
                     except(AttributeError):
-                        print("AttributeError-" + "Error_title_url")
+                        print("AttributeError")
                         seed_current += 1
                         continue
                     except(UnicodeEncodeError):
-                        print("UnicodeError-" + "Error_title_url")
+                        print("UnicodeError")
                         seed_current += 1
                         continue
                     #some url doesn't has title
@@ -259,17 +272,23 @@ class Searcher(ThreadController):
                         continue                    
                         
                     try:
-                        urls = soup.find_all("a", limit= Configure.
-                                             SINGLE_URL_SEARCH_LIMIT)
+                        urls = soup.find_all("a", limit= self.
+                                             single_url_search_limit)
                     except(Exception) as e:
                         print(e)
                         seed_current += 1
                         continue
                     
-                    #add data to dict                 
-                    exporter.addData(seed_title, seed_url)
+                    #add data to dict
+                    try:
+                        exporter.addData(seed_url, seed_title)
+                    except(Exception) as e:
+                        error_info = open(r'.\error_info.txt', 'w+', -1)
+                        error_info.write(e)
+                        error_info.close()
                     #export url data, "seeds_sum" for recording order
-                    exporter.export(seeds_sum)                     
+                    exporter.export(seeds_sum)                      
+                                         
                     
                     new_urls = validator.CheckUrls(self.seeds[seed_current], urls)
                     
@@ -281,17 +300,24 @@ class Searcher(ThreadController):
                                 self.seeds.append(seed)
                                 seed_set.add(seed)
                                 
+                    url_count += 1        
+                    os.system("Title " + str(url_count))
                     seed_current += 1
                     seeds_sum += 1
-                    
+                                       
                 else:
-                    exporter.finish_info(DataExporter.NO_MORE_SEEDS)
-                    self.thread_stop = True
                     exporter.isFinished = True
+                    exporter.export(seeds_sum, isFinished= True)
+                    exporter.finish_info(exporter.NO_MORE_SEEDS)
+                    seed_set.clear()
+                    self.thread_stop = True
                     break
             if not exporter.isFinished: 
-                exporter.finish_info(DataExporter.EXCEED_LIMIT)
+                exporter.finish_info(exporter.EXCEED_LIMIT)
+                seed_set.clear()
                 self.thread_stop = True
+            break
+            
             
         
     #----------------------------------------------------------------------
@@ -380,15 +406,21 @@ class DataExporter:
         self.seed_infos = {}   #a dict to store tempory titles and urls
         self.initial_seeds = initial_seeds
         self.isFinished = False
+        self.output_position = 0
+        self.output_style = Configure.OUTPUT_STYLE
+        self.txt_mode = Configure.TXT_MODE
+        self.output_frequency = Configure.OUTPUT_FREQUENCY
+        self.total_url_limit = Configure.TOTAL_URL_LIMIT
+        
         if Configure.OUTPUT_NAME_STYLE == Configure.USE_UUID:
-            self.urldata_file_name = "URLDATA-" + str(uuid.uuid1()) + ".txt"
+            self.urldata_file_name = "URLDATA-" + str(uuid.uuid1())
         elif Configure.OUTPUT_NAME_STYLE == Configure.USE_TIMESTAMP:
-            self.urldata_file_name = "URLDATA-" + str(int(time.time())) + ".txt"
+            self.urldata_file_name = "URLDATA-" + str(int(time.time()))
         elif Configure.OUTPUT_NAME_STYLE == Configure.USE_DATETIME:
             now = time.strftime("%Y-%m-%d_%H-%M-%S")
-            self.urldata_file_name = "URLDATA-" + now + ".txt"
+            self.urldata_file_name = "URLDATA-" + now
         elif Configure.OUTPUT_NAME_STYLE == Configure.USE_DOMAIN_NAME:     
-            self.urldata_file_name = "URLDATA-" + str(urlparse(initial_seeds[0])[1]) + '.txt'
+            self.urldata_file_name = "URLDATA-" + str(urlparse(initial_seeds[0])[1])
         self.urldata_file_name = os.path.join(Configure.OUTPUT_PATH, self.urldata_file_name) 
             
         
@@ -400,66 +432,133 @@ class DataExporter:
     #----------------------------------------------------------------------
     def initial_info(self):
         """output the initial seeds info which for searching"""
-        with open(self.urldata_file_name, "w", -1) as urldata_file:
-            urldata_file.write("Initial seeds to search: \n")
-            for i in range(len(self.initial_seeds)):
-                urldata_file.write(str(i + 1) + ". " + self.initial_seeds[i] + '\n')
-            urldata_file.write('\n')
-            urldata_file.write(time.strftime("Start time: %x %X\n\n"))
+        if self.output_style == Configure.TXT_MODE:
+            with open(self.urldata_file_name, "w", -1) as urldata_file:
+                urldata_file.write("Initial seeds to search: \n")
+                for i in range(len(self.initial_seeds)):
+                    urldata_file.write(str(i + 1) + ". " + self.initial_seeds[i] + '\n')
+                urldata_file.write('\n')
+                urldata_file.write(time.strftime("Start time: %x %X\n\n"))
+        elif self.output_style == Configure.CSV_MODE:
+            with open(self.urldata_file_name + '.csv', 'a', buffering= 1) as data_csv:
+                writer = csv.writer(data_csv)
+                writer.writerow(("INDEX", "TITLE", "URL" ))
+            
             
     #----------------------------------------------------------------------
     def finish_info(self, result_code):
-        """output finished information to the tail of urldatafile.txt"""
-        if result_code == self.NO_MORE_SEEDS:
-            with open(self.urldata_file_name, "a+", -1) as urldata_file:
-                urldata_file.write("\nNo more urls can be found in given seeds.\n")
-                urldata_file.write(time.strftime("End time: %x %X\n"))
-        else:
-            with open(self.urldata_file_name, "a+", -1) as urldata_file:
-                urldata_file.write("\nThe number of urls exceeds limit of TOTAL_URL_LIMIT({0}).\n".format(Configure.TOTAL_URL_LIMIT))
-                urldata_file.write(time.strftime("\nEnd time: %x %X\n"))        
+        """output finished information to the tail of urldata file"""
+        if self.output_style == Configure.TXT_MODE:
+            if result_code == self.NO_MORE_SEEDS:
+                with open(self.urldata_file_name, "a+", -1) as urldata_file:
+                    urldata_file.write("\nNo more urls can be found in given seeds.\n")
+                    urldata_file.write(time.strftime("End time: %x %X\n"))
+            else:
+                with open(self.urldata_file_name, "a+", -1) as urldata_file:
+                    urldata_file.write("\nThe number of urls exceeds limit of TOTAL_URL_LIMIT({0}).\n".format(Configure.TOTAL_URL_LIMIT))
+                    urldata_file.write(time.strftime("\nEnd time: %x %X\n"))
+        elif self.output_style == Configure.CSV_MODE:
+            pass
         
     #----------------------------------------------------------------------
-    def export(self, seeds_sum):
+    def export(self, seeds_sum, isFinished = False):
         """export urls"""
-        if len(self.seed_infos) >= Configure.OUTPUT_FREQUENCY:
-            if Configure.OUTPUT_STYLE == Configure.TXT_MODE:
+        if len(self.seed_infos) >= self.output_frequency or seeds_sum + 1 == self.total_url_limit or \
+        isFinished == True :
+            if self.output_style == self.txt_mode:
                 self._toTXT(seeds_sum)
             elif Configure.OUTPUT_STYLE == Configure.SQLITE_MODE:
                 pass
             elif Configure.OUTPUT_STYLE == Configure.MYSQL_MODE:
-                pass
+                self._toMySQL()
             elif Configure.OUTPUT_STYLE == Configure.CSV_MODE:
-                pass
+                self._toCSV(seeds_sum)
             elif Configure.OUTPUT_STYLE == Configure.JSON_MODE:
                 pass
             elif Configure.OUTPUT_STYLE == Configure.MONGODB_MODE:
                 pass
             elif Configure.OUTPUT_STYLE == Configure.HTML_MODE:
                 pass
+            
                     
                     
     #----------------------------------------------------------------------
     def _toTXT(self, seeds_sum):
         """export data to txt format"""
         try:
-            data_txt = open(self.urldata_file_name, mode='a+', buffering= -1)
+            data_txt = open(self.urldata_file_name + '.txt', mode='a', buffering= 1)
             for seed_info in self.seed_infos.items():
-                data_txt.write(str(seeds_sum + 1) + ". ""TITLE: ")
+                data_txt.write(str(self.output_position  + 1) + ". ""TITLE: ")
                 #delete space and CRLF in seed_title
-                data_txt.write((''.join(seed_info[0].strip().split('\n')).replace(' ', '')))
+                data_txt.write((''.join(seed_info[1].strip().split('\n')).replace(' ', '')))
                 data_txt.write(" ")
                 data_txt.write("URL: ")
-                data_txt.write(seed_info[1])
+                data_txt.write(seed_info[0])
                 data_txt.write("\n")
+                self.output_position += 1
         except(IOError):
             print("Can not open or create urldata file!")
-        except(UnicodeEncodeError):
-            data_txt.write('\n')
+        except(UnicodeEncodeError) as e:
+            print(e)
+        except(Exception) as e:
+            print(e)
         finally:
-            self.seed_infos.clear()
+            self.output_position = seeds_sum + 1
             data_txt.flush()
             data_txt.close()
+            self.seed_infos.clear()
+            
+    #----------------------------------------------------------------------
+    def _toCSV(self, seeds_sum):
+        """export data to csv format"""
+        try:
+            data_csv = open(self.urldata_file_name + '.csv', 'a', buffering= 1)
+        except(IOError):
+            print("Can't not open or create data.csv")
+        try:
+            writer = csv.writer(data_csv)
+            for seed_info in self.seed_infos.items():
+                csvRow = []
+                csvRow.append(str(self.output_position  + 1))
+                #delete space and CRLF in seed_title
+                csvRow.append((''.join(seed_info[1].strip().split('\n')).replace(' ', '')))
+                csvRow.append(seed_info[0])
+                writer.writerow(csvRow)
+                self.output_position += 1
+        except(Exception) as e:
+            print(e)
+        finally:
+            self.output_position = seeds_sum + 1
+            data_csv.flush()
+            data_csv.close()
+            self.seed_infos.clear()
+            
+    #----------------------------------------------------------------------
+    def _toMySQL(self):
+        """export data to local or remote MySQL database"""
+        tableName = 'urldata'
+        databaseName = 'scraping'
+        conn = pymysql.connect(host = '127.0.0.1', user = 'root', passwd = '3911965',
+            db = 'mysql', charset = 'utf8')
+        cur = conn.cursor()
+        cur.execute("USE " + databaseName)
+        try:
+            for seed_info in self.seed_infos.items(): 
+                cur.execute("INSERT INTO " + tableName+ " (title,url) VALUES (\"%s\",\"%s\")",
+                    (seed_info[1], seed_info[0]))
+                cur.connection.commit()           
+        except(pymysql.err.InternalError) as e:
+            print(e)
+        except(pymysql.err.IntegrityError) as e:
+            print(e)
+        except(pymysql.err.DataError) as e:
+            print(e)
+        finally:
+            cur.close()
+            conn.close()
+            self.seed_infos.clear()
+
+            
             
         
 ########################################################################
@@ -476,16 +575,20 @@ class Launcher:
         """start this app"""
         seedList = []
         if self.start_mode == Configure.START_IN_CMD:
-            url = input("Please input a valid url which contains schema, "
+            url = input("Please input a valid url, "
                         "leave it blank by default:\n")
             if not url == "":
-                seedList.append(url)
+                if url.startswith('http://'):
+                    seedList.append(url)
+                else:
+                    seedList.append("http://" + url)
             else:
-                seedList = Configure.SEEDLIST2
+                seedList = Configure.SEEDLIST
             ThreadController(seedList).generateThreads()
                   
    
         
 if __name__ == '__main__':
+    url_count = 0
     Launcher().start()
     
