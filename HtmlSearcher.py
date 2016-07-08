@@ -1,6 +1,6 @@
 #encoding:GBK
 
-#VERSION = 0.853
+#VERSION = 0.86
 #AUTHOR: William Yang
 #EMAIL: 505741310@qq.com
 #WEIBO: weibo.com/yyb1105
@@ -31,7 +31,6 @@ from urllib.parse import urlparse
 from colorama import init, Fore, Back, Style
 
 
-
 ########################################################################
 class Configure: 
     """restore the initial parameters"""
@@ -48,7 +47,7 @@ class Configure:
     OUTPUT_PATH = r'.\\'
     BASE_DIRECTORY = 'urldata'
     ###############################
-    OUTPUT_STYLE = CSV_MODE
+    OUTPUT_STYLE = TXT_MODE
     ###############################
     
     #OUTPUT_NAME_STYLE
@@ -68,6 +67,19 @@ class Configure:
     OBTAIN_URL_STYLE = BY_RANDOM
     ###############################
     
+    #URL_FILTER_MODE
+    NO_RESTRICTION = 0
+    DOMAIN_RESTRICTION = 1
+    ###############################
+    URL_FILTER_MODE = DOMAIN_RESTRICTION
+    ###############################    
+    
+    #URL_FILTER_ATTRIBUTES
+    UNLIMITED = 0
+    ############################### 
+    URL_LENGTH_LIMIT = UNLIMITED
+    ############################### 
+    
     #START_MODE
     START_IN_CMD = 0
     START_IN_GUI = 1
@@ -84,10 +96,10 @@ class Configure:
     ###############################
     
     #THREAD Setting
-    SINGLE_URL_SEARCH_LIMIT = 200
-    TOTAL_URL_LIMIT = 10
+    SINGLE_URL_SEARCH_LIMIT = 100
+    TOTAL_URL_LIMIT = 500
     THREAD_LIMIT = 1
-    OUTPUT_FREQUENCY = 5
+    OUTPUT_FREQUENCY = 20
     THREAD_WAIT = 0
     
     SEEDLIST = ["http://www.hao123.com",
@@ -227,6 +239,7 @@ class Searcher(ThreadController):
         exporter = DataExporter(self.seeds)
         exporter.initial_info()
         threadEvent = Event()
+        urlfilter = UrlFilter(self.seeds[0])
            
         #add initial seeds to seed_set
         for i in range(len(self.seeds)):          
@@ -321,13 +334,15 @@ class Searcher(ThreadController):
                     exporter.addData(seed_url, seed_title)
                     #export url data, "seeds_sum" for recording order
                     exporter.export(seeds_sum)                      
-                                         
-                    new_urls = validator.CheckUrls(self.seeds[seed_current], urls)
+                    #validate and reform url which is incorrect format                     
+                    checked_urls = validator.CheckUrls(self.seeds[seed_current], urls)
+                    #filter url with specific conditions
+                    filtered_urls = urlfilter.filters(checked_urls)
                     
                     #check duplicate url. if it is unique then added to seed_set
                     # or abandoned
-                    if not len(new_urls) == 0:
-                        for seed in new_urls:
+                    if not len(filtered_urls) == 0:
+                        for seed in filtered_urls:
                             if seed not in seed_set:
                                 self.seeds.append(seed)
                                 seed_set.add(seed)
@@ -427,8 +442,50 @@ class UrlFilter:
     """filter urls which in specific conditions"""
 
     #----------------------------------------------------------------------
-    def __init__(self):
+    def __init__(self, url):
         """Constructor"""
+        self.url_filter_mode = Configure.URL_FILTER_MODE
+        self.url_length_limit = Configure.URL_LENGTH_LIMIT
+        self.domainName = self._getDomainName(url)
+        
+    
+    #----------------------------------------------------------------------
+    def _getDomainName(self, url):
+        """Get domain name"""
+        match = re.search("http://(.*)\.com", url)
+        if match:
+            domainName = match.group(1).split('.')[1]
+        return domainName
+        
+    
+    #----------------------------------------------------------------------
+    def filters(self, urls):
+        """Filter urls and return them"""
+        filtered_urls = []
+        for url in urls:
+            if self._checkUrl(url):
+                filtered_urls.append(url)
+        return filtered_urls
+                
+                
+    #----------------------------------------------------------------------
+    def _checkUrl(self, url):
+        """Check url whether is meets the requirement of Configure"""
+        if self.url_filter_mode == Configure.DOMAIN_RESTRICTION:
+            if self.domainName + '.com' in repr(url):
+                conditionA = True
+            else:conditionA = False
+                
+        if self.url_length_limit == Configure.UNLIMITED:
+            conditionB = True
+        else:
+            conditionB = (len(repr(url)) < self.url_length_limit and True or False)
+            
+        #if meets with all conditions will retrun True
+        return conditionA and conditionB
+        
+        
+        
         
         
 ########################################################################
@@ -507,7 +564,7 @@ class DataExporter:
                 with open(self.urldata_file_name + '.csv', 'a+', 1, 'GB18030') as data_csv:
                     writer = csv.writer(data_csv)
                     writer.writerow(("No more urls can be found in given seeds.", "", ""))
-                    writer.writerow((time.strftime("End time: %x %X")), "", "")
+                    writer.writerow((time.strftime("End time: %x %X"), "", ""))
             else:
                 with open(self.urldata_file_name + '.csv', 'a+', 1, 'GB18030') as data_csv:
                     writer = csv.writer(data_csv)
