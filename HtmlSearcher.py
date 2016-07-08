@@ -1,6 +1,6 @@
 #encoding:GBK
 
-#VERSION = 0.85
+#VERSION = 0.853
 #AUTHOR: William Yang
 #EMAIL: 505741310@qq.com
 #WEIBO: weibo.com/yyb1105
@@ -20,6 +20,7 @@ import pickle
 import pymysql
 import sqlite3
 import logging
+import pymongo
 import html5lib
 import requests
 import threading
@@ -27,6 +28,7 @@ from threading import Event
 from threading import Thread
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
+from colorama import init, Fore, Back, Style
 
 
 
@@ -46,7 +48,7 @@ class Configure:
     OUTPUT_PATH = r'.\\'
     BASE_DIRECTORY = 'urldata'
     ###############################
-    OUTPUT_STYLE = TXT_MODE
+    OUTPUT_STYLE = CSV_MODE
     ###############################
     
     #OUTPUT_NAME_STYLE
@@ -83,9 +85,9 @@ class Configure:
     
     #THREAD Setting
     SINGLE_URL_SEARCH_LIMIT = 200
-    TOTAL_URL_LIMIT = 50000
-    THREAD_LIMIT = 3
-    OUTPUT_FREQUENCY = 50
+    TOTAL_URL_LIMIT = 10
+    THREAD_LIMIT = 1
+    OUTPUT_FREQUENCY = 5
     THREAD_WAIT = 0
     
     SEEDLIST = ["http://www.hao123.com",
@@ -186,13 +188,13 @@ class ThreadController(Thread):
     def generateThreads(self):
         threading.stack_size(8388608)
         seedHolder =  SeedHolder(self.seedList)
-        print("Start searching" + "\n")
-        print("Threads: " + str(Configure.THREAD_LIMIT) + "\n")
+        print(Fore.LIGHTYELLOW_EX + "Start searching" + "\n")
+        print(Fore.LIGHTYELLOW_EX + "Threads: " + str(Configure.THREAD_LIMIT) + "\n")
         for group in seedHolder.divideSeeds():
-            print(group)
+            print(Fore.LIGHTYELLOW_EX + repr(group))
             searcher = Searcher(group)
             searcher.start()
-            searcher.join()
+            #searcher.join()
         print('\n')        
         
         
@@ -247,14 +249,14 @@ class Searcher(ThreadController):
                             #lowest speed
                             #soup = BeautifulSoup(req.content, "html5lib")
                             #fastet speed but has some bug
-                            soup = BeautifulSoup(req.content, "lxml")
+                            #soup = BeautifulSoup(req.content, "lxml")
                             #midium speed
-                            #soup = BeautifulSoup(req.content, "html.parser")
+                            soup = BeautifulSoup(req.content, "html.parser")
                         else:
                             seed_current += 1
                             continue
                     except(Exception) as e:
-                        print(e)
+                        print(Fore.LIGHTRED_EX + repr(e))
                         with open("error_info.txt", 'a', buffering= 1) as err:
                             err.write("Error: run() tag_A\n" + repr(e) + '\n\n')
                         seed_current += 1
@@ -270,10 +272,11 @@ class Searcher(ThreadController):
                         #soup.title.string.encode('GBK', 'ignore').decode('GBK', 'ignore')
                         #seed_title = soup.title.string.encode('GB2312', 'ignore').decode('GB18030', 'ignore')
                         #seed_title = bytes(soup.title.string, 'utf-8').decode('utf-8', 'ignore')
-                        print("TRY: " + seed_url)
-                        print('TITLE: ' + seed_title.encode('GBK', 'ignore').decode('GBK', 'ignore'))
+                        #print( + "TRY: " + seed_url)
+                        print(Fore.LIGHTCYAN_EX+ 'TITLE: ' +
+                              seed_title.encode('GBK', 'ignore').decode('GBK', 'ignore'))
                         #print('TITLE: ' + seed_title)
-                        print('URL: ' +  seed_url+ '\n')
+                        print(Fore.LIGHTGREEN_EX + 'URL: ' +  seed_url+ '\n')
                         
                         #seed_url = self.seeds[seed_current]
                         #seed_title = soup.head.title.string.encode('GBK', 'ignore').decode('GBK', 'ignore')
@@ -281,13 +284,13 @@ class Searcher(ThreadController):
                         #print('±ê??: ' + seed_title)
                         #print('url: ' +  seed_url+ '\n')                        
                     except(AttributeError) as e:
-                        print("AttributeError")
+                        print(Fore.LIGHTRED_EX + "AttributeError")
                         seed_current += 1
                         with open("error_info.txt", 'a', buffering= 1, encoding= 'GB18030') as err:
                             err.write("AttributeError: run()\n" + repr(e) + "\n" + "Url: " + seed_url + '\n\n')
                         continue
                     except(UnicodeEncodeError) as e:
-                        print("UnicodeError")
+                        print(Fore.LIGHTRED_EX + "UnicodeError")
                         seed_current += 1
                         #seed_title = soup.title.string.decode('GB2312', 'ignore')
                         #seed_title = soup.title.string.decode('GB2312', 'replace').encode('GBK', 'replace')
@@ -295,7 +298,7 @@ class Searcher(ThreadController):
                             err.write("UnicodeError: run()\n" + repr(e) + "\n" + "Url: " + seed_url + '\n\n')     
                         continue
                     #some url doesn't has title
-                    except(TypeError) as e:
+                    except(Fore.LIGHTRED_EX + TypeError) as e:
                         print("TypeError")
                         seed_current += 1
                         with open("error_info.txt", 'a', buffering= 1, encoding= 'GB18030') as err:
@@ -470,16 +473,21 @@ class DataExporter:
     def initial_info(self):
         """output the initial seeds info which for searching"""
         if self.output_style == Configure.TXT_MODE:
-            with open(self.urldata_file_name + '.txt', "w", -1) as urldata_file:
+            with open(self.urldata_file_name + '.txt', "w", 1, encoding= 'GB18030') as urldata_file:
                 urldata_file.write("Initial seeds to search: \n")
                 for i in range(len(self.initial_seeds)):
                     urldata_file.write(str(i + 1) + ". " + self.initial_seeds[i] + '\n')
                 urldata_file.write('\n')
-                urldata_file.write(time.strftime("Start time: %x %X\n\n"))
+                urldata_file.write(time.strftime("Start time: %x %X"))
         elif self.output_style == Configure.CSV_MODE:
-            with open(self.urldata_file_name + '.csv', 'w', buffering= 1) as data_csv:
+            with open(self.urldata_file_name + '.csv', 'w', buffering= 1, encoding= 'GB18030') as data_csv:
                 writer = csv.writer(data_csv)
+                writer.writerow(("Initial seeds to search: ", "", ""))
+                for i in range(len(self.initial_seeds)):
+                    writer.writerow((str(i + 1) + ". " + self.initial_seeds[i], "", ""))
+                writer.writerow((time.strftime("Start time: %x %X"), "", ""))
                 writer.writerow(("INDEX", "TITLE", "URL" ))
+            
             
             
     #----------------------------------------------------------------------
@@ -487,15 +495,25 @@ class DataExporter:
         """output finished information to the tail of urldata file"""
         if self.output_style == Configure.TXT_MODE:
             if result_code == self.NO_MORE_SEEDS:
-                with open(self.urldata_file_name + '.txt', "a+", -1) as urldata_file:
+                with open(self.urldata_file_name + '.txt', "a+", 1, 'GB18030') as urldata_file:
                     urldata_file.write("\nNo more urls can be found in given seeds.\n")
                     urldata_file.write(time.strftime("End time: %x %X\n"))
             else:
-                with open(self.urldata_file_name + '.txt', "a+", -1) as urldata_file:
+                with open(self.urldata_file_name + '.txt', "a+", 1, 'GB18030') as urldata_file:
                     urldata_file.write("\nThe number of urls exceeds limit of TOTAL_URL_LIMIT({0}).\n".format(Configure.TOTAL_URL_LIMIT))
                     urldata_file.write(time.strftime("\nEnd time: %x %X\n"))
         elif self.output_style == Configure.CSV_MODE:
-            pass
+            if result_code == self.NO_MORE_SEEDS:
+                with open(self.urldata_file_name + '.csv', 'a+', 1, 'GB18030') as data_csv:
+                    writer = csv.writer(data_csv)
+                    writer.writerow(("No more urls can be found in given seeds.", "", ""))
+                    writer.writerow((time.strftime("End time: %x %X")), "", "")
+            else:
+                with open(self.urldata_file_name + '.csv', 'a+', 1, 'GB18030') as data_csv:
+                    writer = csv.writer(data_csv)
+                    writer.writerow(("The number of urls exceeds limit of TOTAL_URL_LIMIT({0}).".format(Configure.TOTAL_URL_LIMIT), "", ""))
+                    writer.writerow((time.strftime("End time: %x %X"), "", ""))
+                    
         
     #----------------------------------------------------------------------
     def export(self, seeds_sum, isFinished = False):
@@ -513,7 +531,7 @@ class DataExporter:
             elif Configure.OUTPUT_STYLE == Configure.JSON_MODE:
                 pass
             elif Configure.OUTPUT_STYLE == Configure.MONGODB_MODE:
-                pass
+                self._toMongoDB()
             elif Configure.OUTPUT_STYLE == Configure.HTML_MODE:
                 pass
             
@@ -534,27 +552,28 @@ class DataExporter:
                 data_txt.write("\n")
                 self.output_position += 1
         except(IOError) as e:
-            print("Can not open or create urldata file!")
+            print(Fore.LIGHTRED_EX + "Can not open or create urldata file!")
             with open("error_info.txt", 'a', buffering= 1) as err:
                 err.write("IOError: _toTXT()\n" + repr(e) + '\n\n')             
         except(UnicodeEncodeError) as e:
             with open("error_info.txt", 'a', buffering= 1) as err:
-                err.write("UnicodeEncodeError: _toTXT()\n" + repr(e) + '\n\n')           
+                err.write("UnicodeEncodeError: _toTXT()\n" + repr(e) + '\n\n')
+        else:
+            data_txt.flush()
+            data_txt.close()            
         finally:
             self.output_position = seeds_sum + 1
-            data_txt.flush()
-            data_txt.close()
             self.seed_infos.clear()
             
     #----------------------------------------------------------------------
     def _toCSV(self, seeds_sum):
         """export data to csv format"""
         try:
-            data_csv = open(self.urldata_file_name + '.csv', 'a', buffering= 1,encoding= 'utf-8')
+            data_csv = open(self.urldata_file_name + '.csv', 'a', buffering= 1,encoding= 'GB18030')
         except(IOError) as e:
-            with open("error_info.txt", 'a', buffering= 1) as err:
+            with open("error_info.txt", 'a', buffering= 1, encoding= 'GB18030') as err:
                 err.write("IOError: _toCSV()\n" + repr(e) + '\n\n')            
-            print("Can't not open or create data.csv")
+            print(Fore.LIGHTRED_EX + "Can't not open or create data.csv")
         try:
             writer = csv.writer(data_csv)
             for seed_info in self.seed_infos.items():
@@ -566,12 +585,13 @@ class DataExporter:
                 writer.writerow(csvRow)
                 self.output_position += 1
         except(Exception) as e:
-            with open("error_info.txt", 'a', buffering= 1) as err:
+            with open("error_info.txt", 'a', buffering= 1, encoding= 'GB18030') as err:
                 err.write("Error: _toCSV()\n" + repr(e) + '\n\n')
+        else:
+            data_csv.flush()
+            data_csv.close()            
         finally:
             self.output_position = seeds_sum + 1
-            data_csv.flush()
-            data_csv.close()
             self.seed_infos.clear()
             
     #----------------------------------------------------------------------
@@ -589,18 +609,24 @@ class DataExporter:
                     (seed_info[1], seed_info[0]))
                 cur.connection.commit()           
         except(pymysql.err.InternalError) as e:
-            with open("error_info.txt", 'a', buffering= 1) as err:
+            with open("error_info.txt", 'a', buffering= 1, encoding= 'GB18030') as err:
                 err.write("pymysql.err.InternalError: _toMySQL()\n" + repr(e) + '\n\n')
         except(pymysql.err.IntegrityError) as e:
-            with open("error_info.txt", 'a', buffering= 1) as err:
+            with open("error_info.txt", 'a', buffering= 1, encoding= 'GB18030') as err:
                 err.write("pymysql.err.IntegrityError: _toMySQL()\n" + repr(e) + '\n\n')
         except(pymysql.err.DataError) as e:
-            with open("error_info.txt", 'a', buffering= 1) as err:
+            with open("error_info.txt", 'a', buffering= 1, encoding= 'GB18030') as err:
                 err.write("pymysql.err.DataError: _toMySQL()\n" + repr(e) + '\n\n')
         finally:
             cur.close()
             conn.close()
             self.seed_infos.clear()
+            
+    #----------------------------------------------------------------------
+    def _toMongoDB(self):
+        """export data to local or remote MongoDB"""
+        pass
+        
 
             
             
@@ -638,12 +664,13 @@ class Launcher:
             if not os.path.exists(export_path):os.makedirs(export_path)
             return True
         except(OSError):
-            print("Can't create directory used for exporting urldata")
+            print(Fore.LIGHTRED_EX + "Can't create directory used for exporting urldata")
             return False
    
    
         
 if __name__ == '__main__':
+    init()  #colorama init()
     url_count = 0
     Launcher().start()
     
