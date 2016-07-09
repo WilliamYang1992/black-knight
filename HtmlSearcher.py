@@ -1,6 +1,6 @@
 #encoding:GBK
 
-#VERSION = 0.86
+#VERSION = 0.865
 #AUTHOR: William Yang
 #EMAIL: 505741310@qq.com
 #WEIBO: weibo.com/yyb1105
@@ -95,12 +95,19 @@ class Configure:
     WORK_MODE = WORK_IN_SINGLETON
     ###############################
     
+    #WRITE_MODE
+    INDEPENDENCE = 0
+    COOPERATION = 1
+    ###############################
+    WRITE_MODE = COOPERATION
+    ###############################
+    
     #THREAD Setting
-    SINGLE_URL_SEARCH_LIMIT = 100
-    TOTAL_URL_LIMIT = 500
-    THREAD_LIMIT = 1
-    OUTPUT_FREQUENCY = 20
-    THREAD_WAIT = 0
+    SINGLE_URL_SEARCH_LIMIT = 200
+    TOTAL_URL_LIMIT = 1000
+    THREAD_LIMIT = 8
+    OUTPUT_FREQUENCY = 50
+    THREAD_WAIT = 0.3
     
     SEEDLIST = ["http://www.hao123.com",
                 "http://www.sina.com",
@@ -134,6 +141,12 @@ class Configure:
                  "http://www.qq.com",
                  "http://www.pc6.com"]
     SEEDLIST7 = ["http://www.qq.com"]
+    SEEDLIST8 = ["www.youku.com",
+                 "www.youku.com",
+                 "www.youku.com",
+                 "www.youku.com",
+                 "www.youku.com",
+                 "www.youku.com"]
     
     #----------------------------------------------------------------------
     def __init__(self):
@@ -141,7 +154,7 @@ class Configure:
 
 
 ########################################################################
-class SeedHolder():
+class SeedsHolder():
     """holding the seeds for initial search"""
 
     #----------------------------------------------------------------------
@@ -198,11 +211,11 @@ class ThreadController(Thread):
         
         
     def generateThreads(self):
-        threading.stack_size(8388608)
-        seedHolder =  SeedHolder(self.seedList)
+        #threading.stack_size(8388608)
+        seedsHolder =  SeedsHolder(self.seedList)
         print(Fore.LIGHTYELLOW_EX + "Start searching" + "\n")
         print(Fore.LIGHTYELLOW_EX + "Threads: " + str(Configure.THREAD_LIMIT) + "\n")
-        for group in seedHolder.divideSeeds():
+        for group in seedsHolder.divideSeeds():
             print(Fore.LIGHTYELLOW_EX + repr(group))
             searcher = Searcher(group)
             searcher.start()
@@ -226,11 +239,14 @@ class Searcher(ThreadController):
         self.total_url_limit = Configure.TOTAL_URL_LIMIT
         self.thread_wait = Configure.THREAD_WAIT
         self.single_url_search_limit = Configure.SINGLE_URL_SEARCH_LIMIT
+        self.write_mode = Configure.WRITE_MODE
         
     #----------------------------------------------------------------------
     def run(self):
         """overwrite run() method"""
-        global url_count
+        global all_url_count
+        global all_url_set
+        
         seeds_sum = 0     #total valid seed index
         seed_current = 0  #current seed index
         seed_set = set()  #a set to store unique urls
@@ -262,12 +278,17 @@ class Searcher(ThreadController):
                             #lowest speed
                             #soup = BeautifulSoup(req.content, "html5lib")
                             #fastet speed but has some bug
-                            #soup = BeautifulSoup(req.content, "lxml")
+                            soup = BeautifulSoup(req.content, "lxml")
                             #midium speed
-                            soup = BeautifulSoup(req.content, "html.parser")
+                            #soup = BeautifulSoup(req.content, "html.parser")
                         else:
                             seed_current += 1
                             continue
+                    except(ConnectionError):
+                        seed_current += 1
+                        #when a connection error occurs, append current seed to tail of seeds list
+                        self.seeds.append(self.seeds[seed_current])
+                        continue                        
                     except(Exception) as e:
                         print(Fore.LIGHTRED_EX + repr(e))
                         with open("error_info.txt", 'a', buffering= 1) as err:
@@ -342,13 +363,19 @@ class Searcher(ThreadController):
                     #check duplicate url. if it is unique then added to seed_set
                     # or abandoned
                     if not len(filtered_urls) == 0:
-                        for seed in filtered_urls:
-                            if seed not in seed_set:
-                                self.seeds.append(seed)
-                                seed_set.add(seed)
+                        if self.write_mode == Configure.INDEPENDENCE:
+                            for seed in filtered_urls:
+                                if seed not in seed_set:
+                                    self.seeds.append(seed)
+                                    seed_set.add(seed)
+                        else:
+                            for seed in filtered_urls:
+                                if seed not in all_url_set:
+                                    self.seeds.append(seed)
+                                    all_url_set.add(seed)
                                 
-                    url_count += 1        
-                    os.system("Title " + str(url_count))
+                    all_url_count += 1        
+                    os.system("Title " + str(all_url_count))
                     seed_current += 1
                     seeds_sum += 1
                                        
@@ -455,7 +482,8 @@ class UrlFilter:
         match = re.search("http://(.*)\.com", url)
         if match:
             domainName = match.group(1).split('.')[1]
-        return domainName
+            return domainName
+        return ""
         
     
     #----------------------------------------------------------------------
@@ -472,7 +500,7 @@ class UrlFilter:
     def _checkUrl(self, url):
         """Check url whether is meets the requirement of Configure"""
         if self.url_filter_mode == Configure.DOMAIN_RESTRICTION:
-            if self.domainName + '.com' in repr(url):
+            if self.domainName + '.com/' in repr(url):
                 conditionA = True
             else:conditionA = False
                 
@@ -506,6 +534,7 @@ class DataExporter:
         self.txt_mode = Configure.TXT_MODE
         self.output_frequency = Configure.OUTPUT_FREQUENCY
         self.total_url_limit = Configure.TOTAL_URL_LIMIT
+        self.write_mode = Configure.WRITE_MODE
         
         if Configure.OUTPUT_NAME_STYLE == Configure.USE_UUID:
             self.urldata_file_name = "URLDATA-" + str(uuid.uuid1())
@@ -529,47 +558,53 @@ class DataExporter:
     #----------------------------------------------------------------------
     def initial_info(self):
         """output the initial seeds info which for searching"""
-        if self.output_style == Configure.TXT_MODE:
-            with open(self.urldata_file_name + '.txt', "w", 1, encoding= 'GB18030') as urldata_file:
-                urldata_file.write("Initial seeds to search: \n")
-                for i in range(len(self.initial_seeds)):
-                    urldata_file.write(str(i + 1) + ". " + self.initial_seeds[i] + '\n')
-                urldata_file.write('\n')
-                urldata_file.write(time.strftime("Start time: %x %X"))
-        elif self.output_style == Configure.CSV_MODE:
-            with open(self.urldata_file_name + '.csv', 'w', buffering= 1, encoding= 'GB18030') as data_csv:
-                writer = csv.writer(data_csv)
-                writer.writerow(("Initial seeds to search: ", "", ""))
-                for i in range(len(self.initial_seeds)):
-                    writer.writerow((str(i + 1) + ". " + self.initial_seeds[i], "", ""))
-                writer.writerow((time.strftime("Start time: %x %X"), "", ""))
-                writer.writerow(("INDEX", "TITLE", "URL" ))
+        if not self.write_mode == Configure.COOPERATION: 
+            if self.output_style == Configure.TXT_MODE:
+                with open(self.urldata_file_name + '.txt', "w", 1, encoding= 'GB18030') as urldata_file:
+                    urldata_file.write("Initial seeds to search: \n")
+                    for i in range(len(self.initial_seeds)):
+                        urldata_file.write(str(i + 1) + ". " + self.initial_seeds[i] + '\n')
+                    urldata_file.write('\n')
+                    urldata_file.write(time.strftime("Start time: %x %X\n"))
+            elif self.output_style == Configure.CSV_MODE:
+                with open(self.urldata_file_name + '.csv', 'w', buffering= 1, encoding= 'GB18030') as data_csv:
+                    writer = csv.writer(data_csv)
+                    writer.writerow(("Initial seeds to search: ", "", ""))
+                    for i in range(len(self.initial_seeds)):
+                        writer.writerow((str(i + 1) + ". " + self.initial_seeds[i], "", ""))
+                    writer.writerow((time.strftime("Start time: %x %X"), "", ""))
+                    writer.writerow(("INDEX", "TITLE", "URL" ))
+        else:
+            pass
             
             
             
     #----------------------------------------------------------------------
     def finish_info(self, result_code):
         """output finished information to the tail of urldata file"""
-        if self.output_style == Configure.TXT_MODE:
-            if result_code == self.NO_MORE_SEEDS:
-                with open(self.urldata_file_name + '.txt', "a+", 1, 'GB18030') as urldata_file:
-                    urldata_file.write("\nNo more urls can be found in given seeds.\n")
-                    urldata_file.write(time.strftime("End time: %x %X\n"))
-            else:
-                with open(self.urldata_file_name + '.txt', "a+", 1, 'GB18030') as urldata_file:
-                    urldata_file.write("\nThe number of urls exceeds limit of TOTAL_URL_LIMIT({0}).\n".format(Configure.TOTAL_URL_LIMIT))
-                    urldata_file.write(time.strftime("\nEnd time: %x %X\n"))
-        elif self.output_style == Configure.CSV_MODE:
-            if result_code == self.NO_MORE_SEEDS:
-                with open(self.urldata_file_name + '.csv', 'a+', 1, 'GB18030') as data_csv:
-                    writer = csv.writer(data_csv)
-                    writer.writerow(("No more urls can be found in given seeds.", "", ""))
-                    writer.writerow((time.strftime("End time: %x %X"), "", ""))
-            else:
-                with open(self.urldata_file_name + '.csv', 'a+', 1, 'GB18030') as data_csv:
-                    writer = csv.writer(data_csv)
-                    writer.writerow(("The number of urls exceeds limit of TOTAL_URL_LIMIT({0}).".format(Configure.TOTAL_URL_LIMIT), "", ""))
-                    writer.writerow((time.strftime("End time: %x %X"), "", ""))
+        if not self.write_mode == Configure.COOPERATION: 
+            if self.output_style == Configure.TXT_MODE:
+                if result_code == self.NO_MORE_SEEDS:
+                    with open(self.urldata_file_name + '.txt', "a+", 1, 'GB18030') as urldata_file:
+                        urldata_file.write("\nNo more urls can be found in given seeds.\n")
+                        urldata_file.write(time.strftime("\nEnd time: %x %X\n"))
+                else:
+                    with open(self.urldata_file_name + '.txt', "a+", 1, 'GB18030') as urldata_file:
+                        urldata_file.write("\nThe number of urls exceeds limit of TOTAL_URL_LIMIT({0}).\n".format(Configure.TOTAL_URL_LIMIT))
+                        urldata_file.write(time.strftime("\nEnd time: %x %X\n"))
+            elif self.output_style == Configure.CSV_MODE:
+                if result_code == self.NO_MORE_SEEDS:
+                    with open(self.urldata_file_name + '.csv', 'a+', 1, 'GB18030') as data_csv:
+                        writer = csv.writer(data_csv)
+                        writer.writerow(("No more urls can be found in given seeds.", "", ""))
+                        writer.writerow((time.strftime("End time: %x %X"), "", ""))
+                else:
+                    with open(self.urldata_file_name + '.csv', 'a+', 1, 'GB18030') as data_csv:
+                        writer = csv.writer(data_csv)
+                        writer.writerow(("The number of urls exceeds limit of TOTAL_URL_LIMIT({0}).".format(Configure.TOTAL_URL_LIMIT), "", ""))
+                        writer.writerow((time.strftime("End time: %x %X"), "", ""))
+        else:
+            pass
                     
         
     #----------------------------------------------------------------------
@@ -578,7 +613,10 @@ class DataExporter:
         if len(self.seed_infos) >= self.output_frequency or seeds_sum + 1 == self.total_url_limit or \
         isFinished == True :
             if self.output_style == self.txt_mode:
-                self._toTXT(seeds_sum)
+                if self.write_mode == Configure.INDEPENDENCE:
+                    self._toTXT_independence(seeds_sum)
+                else:
+                    self._toTXT_cooperation()
             elif Configure.OUTPUT_STYLE == Configure.SQLITE_MODE:
                 pass
             elif Configure.OUTPUT_STYLE == Configure.MYSQL_MODE:
@@ -595,10 +633,11 @@ class DataExporter:
                     
                     
     #----------------------------------------------------------------------
-    def _toTXT(self, seeds_sum):
-        """export data to txt format"""
+    def _toTXT_independence(self, seeds_sum):
+        """export data in txt format to independent file"""
         try:
-            data_txt = open(self.urldata_file_name + '.txt', mode='a', buffering= 1, encoding= 'GB18030')
+            data_txt = open(self.urldata_file_name + '.txt', mode='a', buffering= 1,
+                encoding= 'GB18030')
             for seed_info in self.seed_infos.items():
                 data_txt.write(str(self.output_position  + 1) + ". " + "TITLE: ")
                 #delete space and CRLF in seed_title
@@ -621,6 +660,39 @@ class DataExporter:
         finally:
             self.output_position = seeds_sum + 1
             self.seed_infos.clear()
+            
+            
+    
+    #----------------------------------------------------------------------
+    def _toTXT_cooperation(self):
+        """export data in txt format to same file"""
+        global url_written_position
+        try:
+            data_txt = open(self.urldata_file_name + '.txt', mode='a', buffering= 1,
+                encoding= 'GB18030')
+            for seed_info in self.seed_infos.items():
+                data_txt.write(str(url_written_position) + ". " + "TITLE: ")
+                url_written_position += 1
+                #delete space and CRLF in seed_title
+                data_txt.write((''.join(seed_info[1].strip().split('\n')).replace(' ', '')))
+                data_txt.write(" ")
+                data_txt.write("URL: ")
+                data_txt.write(seed_info[0])
+                data_txt.write("\n")
+        except(IOError) as e:
+            print(Fore.LIGHTRED_EX + "Can not open or create urldata file!")
+            with open("error_info.txt", 'a', buffering= 1) as err:
+                err.write("IOError: _toTXT()\n" + repr(e) + '\n\n')             
+        except(UnicodeEncodeError) as e:
+            with open("error_info.txt", 'a', buffering= 1) as err:
+                err.write("UnicodeEncodeError: _toTXT()\n" + repr(e) + '\n\n')
+        else:
+            data_txt.flush()
+            data_txt.close()            
+        finally:
+            self.seed_infos.clear()            
+    
+    
             
     #----------------------------------------------------------------------
     def _toCSV(self, seeds_sum):
@@ -681,7 +753,7 @@ class DataExporter:
             
     #----------------------------------------------------------------------
     def _toMongoDB(self):
-        """export data to local or remote MongoDB"""
+        """export data to local or remote MongoDB database"""
         pass
         
 
@@ -700,7 +772,6 @@ class Launcher:
     #----------------------------------------------------------------------
     def start(self):
         """start this app"""
-        
         seedList = []
         if self.start_mode == Configure.START_IN_CMD:
             if self._createExportPath():
@@ -712,9 +783,11 @@ class Launcher:
                     else:
                         seedList.append("http://" + url)
                 else:
-                    seedList = Configure.SEEDLIST7
+                    seedList = self._reformUrls(Configure.SEEDLIST8)
                 ThreadController(seedList).generateThreads()
-                  
+                
+                
+    #----------------------------------------------------------------------
     def _createExportPath(self):
         export_path = os.path.join(Configure.OUTPUT_PATH, Configure.BASE_DIRECTORY)
         try:
@@ -723,11 +796,24 @@ class Launcher:
         except(OSError):
             print(Fore.LIGHTRED_EX + "Can't create directory used for exporting urldata")
             return False
+        
+    
+    #----------------------------------------------------------------------    
+    def _reformUrls(self, urls):
+        reformed_urls = []
+        for url in urls:
+            if not url.startswith('http://'):
+                url = "http://" + url
+            reformed_urls.append(url)
+        return reformed_urls
+
    
    
         
 if __name__ == '__main__':
     init()  #colorama init()
-    url_count = 0
+    all_url_count = 0  #the number of urls which collected by all threads and will show in title of CMD
+    url_written_position = 1  #record position for export url data when WRITE_MODE is COOPERATION
+    all_url_set = set()  #store all urls when WRITE_MODE is COOPERATION
     Launcher().start()
     
