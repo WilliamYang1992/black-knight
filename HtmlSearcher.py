@@ -1,6 +1,6 @@
 #encoding:GBK
 
-#VERSION = 0.865
+#VERSION = 0.870
 #AUTHOR: William Yang
 #EMAIL: 505741310@qq.com
 #WEIBO: weibo.com/yyb1105
@@ -46,33 +46,43 @@ class Configure:
     HTML_MODE = 8
     OUTPUT_PATH = r'.\\'
     BASE_DIRECTORY = 'urldata'
-    ###############################
+    #####################################
     OUTPUT_STYLE = TXT_MODE
-    ###############################
+    #####################################
     
     #OUTPUT_NAME_STYLE
     USE_UUID = 0
     USE_TIMESTAMP = 1
     USE_DATETIME = 2
     USE_DOMAIN_NAME = 3
-    ###############################
+    #####################################
     OUTPUT_NAME_STYLE = USE_DOMAIN_NAME
-    ###############################
+    #####################################
     
     #OBTAIN_URL_STYLE
     BY_ORDER = 0
     BY_SORTED = 1
     BY_RANDOM = 2
-    ###############################
+    #####################################
     OBTAIN_URL_STYLE = BY_RANDOM
-    ###############################
+    #####################################
+    
+    #COLLECT_MODE
+    TITLE_DATA = 0
+    JPG_DATA = 1
+    GIF_DATA = 2
+    IMAGE_DATA = 3
+    CONTENT_DATA = 4
+    #####################################
+    COLLECT_MODE = TITLE_DATA
+    #####################################
     
     #URL_FILTER_MODE
     NO_RESTRICTION = 0
     DOMAIN_RESTRICTION = 1
-    ###############################
+    #####################################
     URL_FILTER_MODE = DOMAIN_RESTRICTION
-    ###############################    
+    #####################################    
     
     #URL_FILTER_ATTRIBUTES
     UNLIMITED = 0
@@ -98,6 +108,7 @@ class Configure:
     #WRITE_MODE
     INDEPENDENCE = 0
     COOPERATION = 1
+    COMMON_URLDATA_FILENAME = 'URLDATA'
     ###############################
     WRITE_MODE = COOPERATION
     ###############################
@@ -105,9 +116,9 @@ class Configure:
     #THREAD Setting
     SINGLE_URL_SEARCH_LIMIT = 200
     TOTAL_URL_LIMIT = 1000
-    THREAD_LIMIT = 8
-    OUTPUT_FREQUENCY = 50
-    THREAD_WAIT = 0.3
+    THREAD_LIMIT = 1
+    OUTPUT_FREQUENCY = 1
+    THREAD_WAIT = 0
     
     SEEDLIST = ["http://www.hao123.com",
                 "http://www.sina.com",
@@ -141,12 +152,36 @@ class Configure:
                  "http://www.qq.com",
                  "http://www.pc6.com"]
     SEEDLIST7 = ["http://www.qq.com"]
-    SEEDLIST8 = ["www.youku.com",
-                 "www.youku.com",
-                 "www.youku.com",
-                 "www.youku.com",
-                 "www.youku.com",
-                 "www.youku.com"]
+    SEEDLIST8 = ["www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",
+                 "www.gamersky.com",]
     
     #----------------------------------------------------------------------
     def __init__(self):
@@ -212,7 +247,7 @@ class ThreadController(Thread):
         
     def generateThreads(self):
         #threading.stack_size(8388608)
-        seedsHolder =  SeedsHolder(self.seedList)
+        seedsHolder =  SeedsHolder(self.seedList[:])
         print(Fore.LIGHTYELLOW_EX + "Start searching" + "\n")
         print(Fore.LIGHTYELLOW_EX + "Threads: " + str(Configure.THREAD_LIMIT) + "\n")
         for group in seedsHolder.divideSeeds():
@@ -220,7 +255,9 @@ class ThreadController(Thread):
             searcher = Searcher(group)
             searcher.start()
             #searcher.join()
-        print('\n')        
+        print('\n')
+        if Configure.WRITE_MODE == Configure.COOPERATION:
+            DataExporter.exportRunningLog(self.seedList, 'start', None)
         
         
         
@@ -240,10 +277,18 @@ class Searcher(ThreadController):
         self.thread_wait = Configure.THREAD_WAIT
         self.single_url_search_limit = Configure.SINGLE_URL_SEARCH_LIMIT
         self.write_mode = Configure.WRITE_MODE
+        self.output_style = Configure.OUTPUT_STYLE
+        self.tableName = 'urldata'
+        self.databaseName = 'scraping'        
+        if self.output_style == Configure.MYSQL_MODE:
+            self.conn = pymysql.connect(host = '127.0.0.1', user = 'root', passwd = '3911965',
+                db = 'mysql', charset = 'utf8mb4')
+            self.cur = self.conn.cursor()
+            self.cur.execute("USE " + self.databaseName)        
         
     #----------------------------------------------------------------------
     def run(self):
-        """overwrite run() method"""
+        """Overwrite run() method. It is main flow os every threads"""
         global all_url_count
         global all_url_set
         
@@ -253,7 +298,7 @@ class Searcher(ThreadController):
       
         validator = UrlValidator()
         exporter = DataExporter(self.seeds)
-        exporter.initial_info()
+        exporter.initial_action()
         threadEvent = Event()
         urlfilter = UrlFilter(self.seeds[0])
            
@@ -270,17 +315,17 @@ class Searcher(ThreadController):
                     try:
                         if seed_current == 0:
                             req = requests.get(self.seeds[seed_current],
-                                               timeout = 120)
+                                timeout = 120)
                         else:
                             req = requests.get(self.seeds[seed_current],
-                                               timeout = 10)
+                                timeout = 10)
                         if req.status_code is 200 :
                             #lowest speed
                             #soup = BeautifulSoup(req.content, "html5lib")
                             #fastet speed but has some bug
-                            soup = BeautifulSoup(req.content, "lxml")
+                            #soup = BeautifulSoup(req.content, "lxml")
                             #midium speed
-                            #soup = BeautifulSoup(req.content, "html.parser")
+                            soup = BeautifulSoup(req.content, "html.parser")
                         else:
                             seed_current += 1
                             continue
@@ -314,14 +359,15 @@ class Searcher(ThreadController):
                         
                         #seed_url = self.seeds[seed_current]
                         #seed_title = soup.head.title.string.encode('GBK', 'ignore').decode('GBK', 'ignore')
-                        #print("try: " + seed_url)
-                        #print('±ê??: ' + seed_title)
-                        #print('url: ' +  seed_url+ '\n')                        
+                        #print("Try: " + seed_url)
+                        #print('Title: ' + seed_title)
+                        #print('Url: ' +  seed_url+ '\n')                        
                     except(AttributeError) as e:
                         print(Fore.LIGHTRED_EX + "AttributeError")
                         seed_current += 1
                         with open("error_info.txt", 'a', buffering= 1, encoding= 'GB18030') as err:
-                            err.write("AttributeError: run()\n" + repr(e) + "\n" + "Url: " + seed_url + '\n\n')
+                            err.write("AttributeError: run()\n" + repr(e) + "\n" + "Url: "
+                                + seed_url + '\n\n')
                         continue
                     except(UnicodeEncodeError) as e:
                         print(Fore.LIGHTRED_EX + "UnicodeError")
@@ -329,19 +375,21 @@ class Searcher(ThreadController):
                         #seed_title = soup.title.string.decode('GB2312', 'ignore')
                         #seed_title = soup.title.string.decode('GB2312', 'replace').encode('GBK', 'replace')
                         with open("error_info.txt", 'a', buffering= 1, encoding= 'GB18030') as err:
-                            err.write("UnicodeError: run()\n" + repr(e) + "\n" + "Url: " + seed_url + '\n\n')     
+                            err.write("UnicodeError: run()\n" + repr(e) + "\n" + "Url: "
+                                + seed_url + '\n\n')     
                         continue
                     #some url doesn't has title
                     except(Fore.LIGHTRED_EX + TypeError) as e:
                         print("TypeError")
                         seed_current += 1
                         with open("error_info.txt", 'a', buffering= 1, encoding= 'GB18030') as err:
-                            err.write("TypeError: run()\n" + repr(e) + "\n" + "Url: " + seed_url + '\n\n')       
+                            err.write("TypeError: run()\n" + repr(e) + "\n" + "Url: "
+                                + seed_url + '\n\n')       
                         continue
                                                 
                         
                         
-                    #find all links in current url
+                    #Find all links in current url
                     try:
                         urls = soup.find_all("a", limit= self.
                                              single_url_search_limit)
@@ -351,29 +399,49 @@ class Searcher(ThreadController):
                         seed_current += 1
                         continue
                     
-                    #add data to dict
+                    #Add data to dict
                     exporter.addData(seed_url, seed_title)
-                    #export url data, "seeds_sum" for recording order
-                    exporter.export(seeds_sum)                      
-                    #validate and reform url which is incorrect format                     
+                    
+                    if Configure.COLLECT_MODE == Configure.TITLE_DATA:
+                        #Export title-url data to specific path, "seeds_sum" for recording order
+                        exporter.export_titledata(seeds_sum)
+                    elif Configure.COLLECT_MODE == Configure.JPG_DATA:
+                        #Collect jpgs from all of links and exports to specific path
+                        exporter.export_jpgdata()
+                    #Validate and reform url which is incorrect format                     
                     checked_urls = validator.CheckUrls(self.seeds[seed_current], urls)
-                    #filter url with specific conditions
+                    #Filter url with specific conditions
                     filtered_urls = urlfilter.filters(checked_urls)
                     
-                    #check duplicate url. if it is unique then added to seed_set
+                    #Check duplicate url. if it is unique then added to seed_set
                     # or abandoned
-                    if not len(filtered_urls) == 0:
-                        if self.write_mode == Configure.INDEPENDENCE:
-                            for seed in filtered_urls:
-                                if seed not in seed_set:
+                    if not self.output_style == Configure.MYSQL_MODE and not \
+                       self.output_style == Configure.MONGODB_MODE:
+                        if not len(filtered_urls) == 0:
+                            if self.write_mode == Configure.INDEPENDENCE:
+                                for seed in filtered_urls:
+                                    if seed not in seed_set:
+                                        self.seeds.append(seed)
+                                        seed_set.add(seed)
+                            else:
+                                for seed in filtered_urls:
+                                    if seed not in all_url_set:
+                                        self.seeds.append(seed)
+                                        all_url_set.add(seed)
+                    else:
+                        if not len(filtered_urls) == 0:
+                            if self.write_mode == Configure.INDEPENDENCE:
+                                pass
+                            else:
+                                for seed in filtered_urls:
+                                    select_stmt = "SELECT * from " + self.tableName + \
+                                        " WHERE url = \"'" + seed + "'\""
+                                    if self.cur.execute(select_stmt):
+                                        #print(Fore.LIGHTWHITE_EX + 'Url already exist: ' + seed + '\n')
+                                        continue
                                     self.seeds.append(seed)
-                                    seed_set.add(seed)
-                        else:
-                            for seed in filtered_urls:
-                                if seed not in all_url_set:
-                                    self.seeds.append(seed)
-                                    all_url_set.add(seed)
-                                
+                                    
+                                          
                     all_url_count += 1        
                     os.system("Title " + str(all_url_count))
                     seed_current += 1
@@ -382,12 +450,20 @@ class Searcher(ThreadController):
                 else:
                     exporter.isFinished = True
                     exporter.export(seeds_sum, isFinished= True)
-                    exporter.finish_info(exporter.NO_MORE_SEEDS)
+                    if self.write_mode == Configure.INDEPENDENCE:
+                        exporter.finish_action(exporter.NO_MORE_SEEDS)
+                    else:
+                        DataExporter.exportRunningLog(None, 'end',
+                            DataExporter.NO_MORE_SEEDS)
                     seed_set.clear()
                     self.thread_stop = True
                     break
-            if not exporter.isFinished: 
-                exporter.finish_info(exporter.EXCEED_LIMIT)
+            if not exporter.isFinished:
+                if self.write_mode == Configure.INDEPENDENCE:
+                    exporter.finish_action(exporter.EXCEED_LIMIT)
+                else:
+                    DataExporter.exportRunningLog(None, 'end',
+                        DataExporter.EXCEED_LIMIT)                    
                 seed_set.clear()
                 self.thread_stop = True
             break
@@ -396,7 +472,7 @@ class Searcher(ThreadController):
         
     #----------------------------------------------------------------------
     def stop(self):
-        """stop current thread"""
+        """Stop current thread"""
         self.thread_stop = True
         
             
@@ -427,7 +503,8 @@ class UrlValidator:
                 if match:
                     urls.append(a_tag.attrs['href'])
                 else:
-                    match = re.search('[/]?[a-z].*[^(doc)|^(pdf)|^(jpg)|^:|^;]$', a_tag.attrs['href'])
+                    match = re.search('[/]?[a-z].*[^(doc)|^(pdf)|^(jpg)|^:|^;]$',
+                        a_tag.attrs['href'])
                     if match:
                         href = match.group(0)
                         if re.search('.*[.]+.*', a_tag.attrs['href']):
@@ -500,7 +577,7 @@ class UrlFilter:
     def _checkUrl(self, url):
         """Check url whether is meets the requirement of Configure"""
         if self.url_filter_mode == Configure.DOMAIN_RESTRICTION:
-            if self.domainName + '.com/' in repr(url):
+            if self.domainName + '.com/' in repr(url) and repr(url).count("http") == 1:
                 conditionA = True
             else:conditionA = False
                 
@@ -535,39 +612,86 @@ class DataExporter:
         self.output_frequency = Configure.OUTPUT_FREQUENCY
         self.total_url_limit = Configure.TOTAL_URL_LIMIT
         self.write_mode = Configure.WRITE_MODE
+        self.tableName = 'urldata'
+        self.databaseName = 'scraping'
+        if self.write_mode == Configure.COOPERATION and self.output_style == Configure.MYSQL_MODE:
+            self.conn, self.cur = self._getMySQLConnection()                    
         
-        if Configure.OUTPUT_NAME_STYLE == Configure.USE_UUID:
-            self.urldata_file_name = "URLDATA-" + str(uuid.uuid1())
-        elif Configure.OUTPUT_NAME_STYLE == Configure.USE_TIMESTAMP:
-            self.urldata_file_name = "URLDATA-" + str(int(time.time()))
-        elif Configure.OUTPUT_NAME_STYLE == Configure.USE_DATETIME:
-            now = time.strftime("%Y-%m-%d_%H-%M-%S")
-            self.urldata_file_name = "URLDATA-" + now
-        elif Configure.OUTPUT_NAME_STYLE == Configure.USE_DOMAIN_NAME:     
-            self.urldata_file_name = "URLDATA-" + str(urlparse(initial_seeds[0])[1])
+        if self.write_mode == Configure.INDEPENDENCE:  
+            if Configure.OUTPUT_NAME_STYLE == Configure.USE_UUID:
+                self.urldata_file_name = "URLDATA-" + str(uuid.uuid1())
+            elif Configure.OUTPUT_NAME_STYLE == Configure.USE_TIMESTAMP:
+                self.urldata_file_name = "URLDATA-" + str(int(time.time()))
+            elif Configure.OUTPUT_NAME_STYLE == Configure.USE_DATETIME:
+                now = time.strftime("%Y-%m-%d_%H-%M-%S")
+                self.urldata_file_name = "URLDATA-" + now
+            elif Configure.OUTPUT_NAME_STYLE == Configure.USE_DOMAIN_NAME:     
+                self.urldata_file_name = "URLDATA-" + str(urlparse(initial_seeds[0])[1])
+        else:
+            self.urldata_file_name = Configure.COMMON_URLDATA_FILENAME
                  
         self.urldata_file_name = os.path.join(Configure.OUTPUT_PATH, Configure.BASE_DIRECTORY,
             self.urldata_file_name)
-            
+    
+    
+    #----------------------------------------------------------------------
+    def _getMySQLConnection(self, host = '127.0.0.1', user = 'root', password = '3911965',
+            database = 'mysql', port = '3306', charset = 'utf8mb4'):
+        """get MySQL database connection"""
+        try:
+            conn = pymysql.connect(host=host, user = user, password = password,
+                database = database, port = port, charset = charset)
+            cur = conn.cursor()
+            cur.execute("USE " + self.databaseName) 
+        except:
+            conn, cur = None, None
+        return conn, cur
+        
         
     #----------------------------------------------------------------------
-    def addData(self, title, url):
+    def addData(self, key, value):
         """add data to tempory dict"""
-        self.seed_infos.setdefault(title, url)
+        self.seed_infos.setdefault(key, value)
+        
         
     #----------------------------------------------------------------------
-    def initial_info(self):
-        """output the initial seeds info which for searching"""
+    @staticmethod
+    def exportRunningLog(initial_seedList, status, result_code):
+        """When write mode is coopertaion, export infomation to running log"""
+        running_log_path = os.path.join(Configure.OUTPUT_PATH, Configure.BASE_DIRECTORY,
+            'running_log.txt')
+        if status == 'start' or status == 1:
+            with open(running_log_path, 'w') as running_log:
+                running_log.write("Initial seeds to search: \n")
+                for i in range(len(initial_seedList)):
+                    running_log.write(repr(i + 1) + ". " + initial_seedList[i] + '\n')
+                running_log.write('\n')
+                running_log.write(time.strftime("Start time: %x %X\n\n"))
+        elif status == 'end' or status == 0:
+            if result_code == DataExporter.NO_MORE_SEEDS:
+                with open(running_log_path, "a+") as running_log:
+                    running_log.write("\nNo more urls can be found in given seeds.\n")
+                    running_log.write(time.strftime("\nEnd time: %x %X\n\n"))
+            elif result_code == DataExporter.EXCEED_LIMIT:
+                with open(running_log_path, "a+") as running_log:
+                    running_log.write("\nThe number of urls exceeds limit of \
+                    TOTAL_URL_LIMIT({0}).\n".format(Configure.TOTAL_URL_LIMIT))
+                    running_log.write(time.strftime("\nEnd time: %x %X\n\n"))            
+
+        
+    #----------------------------------------------------------------------
+    def initial_action(self):
+        """perform initial actions and  output the initial seeds info which for searching"""
         if not self.write_mode == Configure.COOPERATION: 
             if self.output_style == Configure.TXT_MODE:
-                with open(self.urldata_file_name + '.txt', "w", 1, encoding= 'GB18030') as urldata_file:
+                with open(self.urldata_file_name + '.txt', "w", 1, 'GB18030') as urldata_file:
                     urldata_file.write("Initial seeds to search: \n")
                     for i in range(len(self.initial_seeds)):
                         urldata_file.write(str(i + 1) + ". " + self.initial_seeds[i] + '\n')
                     urldata_file.write('\n')
                     urldata_file.write(time.strftime("Start time: %x %X\n"))
             elif self.output_style == Configure.CSV_MODE:
-                with open(self.urldata_file_name + '.csv', 'w', buffering= 1, encoding= 'GB18030') as data_csv:
+                with open(self.urldata_file_name + '.csv', 'w', 1, 'GB18030') as data_csv:
                     writer = csv.writer(data_csv)
                     writer.writerow(("Initial seeds to search: ", "", ""))
                     for i in range(len(self.initial_seeds)):
@@ -580,8 +704,8 @@ class DataExporter:
             
             
     #----------------------------------------------------------------------
-    def finish_info(self, result_code):
-        """output finished information to the tail of urldata file"""
+    def finish_action(self, result_code):
+        """perform finishing actions and output information to the tail of urldata file"""
         if not self.write_mode == Configure.COOPERATION: 
             if self.output_style == Configure.TXT_MODE:
                 if result_code == self.NO_MORE_SEEDS:
@@ -590,28 +714,33 @@ class DataExporter:
                         urldata_file.write(time.strftime("\nEnd time: %x %X\n"))
                 else:
                     with open(self.urldata_file_name + '.txt', "a+", 1, 'GB18030') as urldata_file:
-                        urldata_file.write("\nThe number of urls exceeds limit of TOTAL_URL_LIMIT({0}).\n".format(Configure.TOTAL_URL_LIMIT))
+                        urldata_file.write("\nThe number of urls exceeds limit of \
+                        TOTAL_URL_LIMIT({0}).\n".format(Configure.TOTAL_URL_LIMIT))
                         urldata_file.write(time.strftime("\nEnd time: %x %X\n"))
             elif self.output_style == Configure.CSV_MODE:
-                if result_code == self.NO_MORE_SEEDS:
+                if result_code == DataExporter.NO_MORE_SEEDS:
                     with open(self.urldata_file_name + '.csv', 'a+', 1, 'GB18030') as data_csv:
                         writer = csv.writer(data_csv)
                         writer.writerow(("No more urls can be found in given seeds.", "", ""))
                         writer.writerow((time.strftime("End time: %x %X"), "", ""))
-                else:
+                elif result_code == DataExporter.EXCEED_LIMIT:
                     with open(self.urldata_file_name + '.csv', 'a+', 1, 'GB18030') as data_csv:
                         writer = csv.writer(data_csv)
-                        writer.writerow(("The number of urls exceeds limit of TOTAL_URL_LIMIT({0}).".format(Configure.TOTAL_URL_LIMIT), "", ""))
+                        writer.writerow(("The number of urls exceeds limit of TOTAL_URL_LIMIT({0}).\
+                        ".format(Configure.TOTAL_URL_LIMIT), "", ""))
                         writer.writerow((time.strftime("End time: %x %X"), "", ""))
+            elif self.output_style == Configure.MYSQL_MODE:
+                self.cur.close()  #close cursor
+                self.conn.close() #close MySQL connection                
         else:
             pass
                     
         
     #----------------------------------------------------------------------
-    def export(self, seeds_sum, isFinished = False):
-        """export urls"""
-        if len(self.seed_infos) >= self.output_frequency or seeds_sum + 1 == self.total_url_limit or \
-        isFinished == True :
+    def export_titledata(self, seeds_sum, isFinished = False):
+        """export title and url data"""
+        if len(self.seed_infos) >= self.output_frequency or seeds_sum + 1 == self.total_url_limit \
+           or isFinished == True :
             if self.output_style == self.txt_mode:
                 if self.write_mode == Configure.INDEPENDENCE:
                     self._toTXT_independence(seeds_sum)
@@ -620,7 +749,10 @@ class DataExporter:
             elif Configure.OUTPUT_STYLE == Configure.SQLITE_MODE:
                 pass
             elif Configure.OUTPUT_STYLE == Configure.MYSQL_MODE:
-                self._toMySQL()
+                if self.write_mode == Configure.INDEPENDENCE:
+                    pass
+                else:
+                    self._toMySQL_cooperation()
             elif Configure.OUTPUT_STYLE == Configure.CSV_MODE:
                 self._toCSV(seeds_sum)
             elif Configure.OUTPUT_STYLE == Configure.JSON_MODE:
@@ -631,7 +763,12 @@ class DataExporter:
                 pass
             
                     
-                    
+    #----------------------------------------------------------------------
+    def export_jpgdata(self):
+        """Collect jpgs from all of links and exports to specific path"""
+        pass
+        
+                 
     #----------------------------------------------------------------------
     def _toTXT_independence(self, seeds_sum):
         """export data in txt format to independent file"""
@@ -648,7 +785,7 @@ class DataExporter:
                 data_txt.write("\n")
                 self.output_position += 1
         except(IOError) as e:
-            print(Fore.LIGHTRED_EX + "Can not open or create urldata file!")
+            print(Fore.LIGHTRED_EX + "Can not open or create a urldata file!")
             with open("error_info.txt", 'a', buffering= 1) as err:
                 err.write("IOError: _toTXT()\n" + repr(e) + '\n\n')             
         except(UnicodeEncodeError) as e:
@@ -722,21 +859,22 @@ class DataExporter:
         finally:
             self.output_position = seeds_sum + 1
             self.seed_infos.clear()
-            
+    
+    
     #----------------------------------------------------------------------
-    def _toMySQL(self):
+    def _toMySQL_cooperation(self):
         """export data to local or remote MySQL database"""
-        tableName = 'urldata'
-        databaseName = 'scraping'
-        conn = pymysql.connect(host = '127.0.0.1', user = 'root', passwd = '3911965',
-            db = 'mysql', charset = 'utf8')
-        cur = conn.cursor()
-        cur.execute("USE " + databaseName)
         try:
-            for seed_info in self.seed_infos.items(): 
-                cur.execute("INSERT INTO " + tableName+ " (title,url) VALUES (\"%s\",\"%s\")",
-                    (seed_info[1], seed_info[0]))
-                cur.connection.commit()           
+            for seed_info in self.seed_infos.items():
+                select_stmt = "SELECT * from " + self.tableName + \
+                    " WHERE url = \"'" + seed_info[0] + "'\""
+                self.cur.execute(select_stmt)
+                result = self.cur.fetchone()
+                if result:
+                    continue
+                self.cur.execute("INSERT INTO " + self.tableName + \
+                    "(title,url) VALUES (\"%s\",\"%s\")",(seed_info[1], seed_info[0]))
+                self.cur.connection.commit()           
         except(pymysql.err.InternalError) as e:
             with open("error_info.txt", 'a', buffering= 1, encoding= 'GB18030') as err:
                 err.write("pymysql.err.InternalError: _toMySQL()\n" + repr(e) + '\n\n')
@@ -747,9 +885,8 @@ class DataExporter:
             with open("error_info.txt", 'a', buffering= 1, encoding= 'GB18030') as err:
                 err.write("pymysql.err.DataError: _toMySQL()\n" + repr(e) + '\n\n')
         finally:
-            cur.close()
-            conn.close()
             self.seed_infos.clear()
+    
             
     #----------------------------------------------------------------------
     def _toMongoDB(self):
@@ -768,6 +905,7 @@ class Launcher:
     def __init__(self):
         """Constructor"""
         self.start_mode = Configure.START_MODE
+        self.output_style = Configure.OUTPUT_STYLE
         
     #----------------------------------------------------------------------
     def start(self):
@@ -776,7 +914,7 @@ class Launcher:
         if self.start_mode == Configure.START_IN_CMD:
             if self._createExportPath():
                 url = input("Please input a valid url, "
-                            "leave it blank with default value:\n")
+                    "leave it blank with default value:\n")
                 if not url == "":
                     if url.startswith('http://'):
                         seedList.append(url)
@@ -789,6 +927,9 @@ class Launcher:
                 
     #----------------------------------------------------------------------
     def _createExportPath(self):
+        if self.output_style == Configure.MYSQL_MODE or \
+           self.output_style == Configure.MONGODB_MODE:
+            return True
         export_path = os.path.join(Configure.OUTPUT_PATH, Configure.BASE_DIRECTORY)
         try:
             if not os.path.exists(export_path):os.makedirs(export_path)
@@ -812,7 +953,8 @@ class Launcher:
         
 if __name__ == '__main__':
     init()  #colorama init()
-    all_url_count = 0  #the number of urls which collected by all threads and will show in title of CMD
+    all_url_count = 0  #the number of urls which collected by all threads and 
+    # will show in the title of CMD
     url_written_position = 1  #record position for export url data when WRITE_MODE is COOPERATION
     all_url_set = set()  #store all urls when WRITE_MODE is COOPERATION
     Launcher().start()
