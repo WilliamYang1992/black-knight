@@ -115,10 +115,10 @@ class Configure:
     ###############################
     
     #THREAD Setting
-    SINGLE_URL_SEARCH_LIMIT = 300
-    TOTAL_URL_LIMIT = 1000
-    THREAD_LIMIT = 1
-    OUTPUT_FREQUENCY = 1
+    SINGLE_URL_SEARCH_LIMIT = UNLIMITED
+    TOTAL_URL_LIMIT = 5000
+    THREAD_LIMIT = 6
+    OUTPUT_FREQUENCY = 50
     THREAD_WAIT = 0
     
     SEEDLIST = ["http://www.hao123.com",
@@ -129,7 +129,7 @@ class Configure:
                 "http://www.7dong.cc",
                 "http://www.163.com",
                 "http://bbs.tianya.cn",
-                "http://www.sohu.com", 
+                "http://www.sohu.com",
                 "http://www.jb51.net",
                 "http://www.kadang.com",
                 "http://www.mtime.com",
@@ -335,7 +335,7 @@ class Searcher(ThreadController):
                         seed_current += 1
                         #when a connection error occurs, append current seed to tail of seeds list
                         self.seeds.append(self.seeds[seed_current])
-                        continue                        
+                        continue
                     except(Exception) as e:
                         print(Fore.LIGHTRED_EX + repr(e))
                         with open("error_info.txt", 'a', buffering= 1) as err:
@@ -363,38 +363,40 @@ class Searcher(ThreadController):
                         #seed_title = soup.head.title.string.encode('GBK', 'ignore').decode('GBK', 'ignore')
                         #print("Try: " + seed_url)
                         #print('Title: ' + seed_title)
-                        #print('Url: ' +  seed_url+ '\n')                        
+                        #print('Url: ' +  seed_url+ '\n')
                     except(AttributeError) as e:
-                        print(Fore.LIGHTRED_EX + "AttributeError")
+                        print(Fore.LIGHTRED_EX + "AttributeError\n")
                         seed_current += 1
                         with open("error_info.txt", 'a', buffering= 1, encoding= 'GB18030') as err:
                             err.write("AttributeError: run()\n" + repr(e) + "\n" + "Url: "
                                 + seed_url + '\n\n')
                         continue
                     except(UnicodeEncodeError) as e:
-                        print(Fore.LIGHTRED_EX + "UnicodeError")
+                        print(Fore.LIGHTRED_EX + "UnicodeError\n")
                         seed_current += 1
                         #seed_title = soup.title.string.decode('GB2312', 'ignore')
                         #seed_title = soup.title.string.decode('GB2312', 'replace').encode('GBK', 'replace')
                         with open("error_info.txt", 'a', buffering= 1, encoding= 'GB18030') as err:
                             err.write("UnicodeError: run()\n" + repr(e) + "\n" + "Url: "
-                                + seed_url + '\n\n')     
+                                + seed_url + '\n\n')
                         continue
                     #some url doesn't has title
-                    except(Fore.LIGHTRED_EX + TypeError) as e:
-                        print("TypeError")
+                    except(TypeError) as e:
+                        print(Fore.LIGHTRED_EX + "TypeError\n")
                         seed_current += 1
                         with open("error_info.txt", 'a', buffering= 1, encoding= 'GB18030') as err:
                             err.write("TypeError: run()\n" + repr(e) + "\n" + "Url: "
-                                + seed_url + '\n\n')       
+                                + seed_url + '\n\n')
                         continue
                                                 
                         
                         
                     #Find all links in current url
                     try:
-                        urls = soup.find_all("a", limit= self.
-                                             single_url_search_limit)
+                        if Configure.SINGLE_URL_SEARCH_LIMIT == Configure.UNLIMITED:
+                            urls = soup.find_all("a")
+                        else:
+                            urls = soup.find_all("a", limit= self.single_url_search_limit)
                     except(Exception) as e:
                         with open("error_info.txt", 'a', buffering= 1) as err:
                             err.write("Error: run()\n" + repr(e) + '\n\n')
@@ -410,7 +412,7 @@ class Searcher(ThreadController):
                     elif Configure.COLLECT_MODE == Configure.JPG_DATA:
                         #Collect jpgs from all of links and exports to specific path
                         exporter.export_jpgdata()
-                    #Validate and reform url which is incorrect format                     
+                    #Validate and reform url which is incorrect format
                     checked_urls = validator.CheckUrls(self.seeds[seed_current], urls)
                     #Filter url with specific conditions
                     filtered_urls = urlfilter.filters(checked_urls)
@@ -444,7 +446,7 @@ class Searcher(ThreadController):
                                     self.seeds.append(seed)
                                     
                                           
-                    all_url_count += 1        
+                    all_url_count += 1
                     os.system("Title " + str(all_url_count))
                     seed_current += 1
                     seeds_sum += 1
@@ -461,12 +463,11 @@ class Searcher(ThreadController):
                     self.thread_stop = True
                     break
             if not exporter.isFinished:
-                exporter.export_titledata(seeds_sum, isFinished= True)
                 if self.write_mode == Configure.INDEPENDENCE:
                     exporter.finish_action(exporter.EXCEED_LIMIT)
                 else:
                     DataExporter.exportRunningLog(None, 'end',
-                        DataExporter.EXCEED_LIMIT)                    
+                        DataExporter.EXCEED_LIMIT)
                 seed_set.clear()
                 self.thread_stop = True
             break
@@ -523,23 +524,26 @@ class UrlValidator:
                 return sorted(urls)[count // 2:count // 2 + count // 10 + 10]
             except(IndexError) as e:
                 with open("error_info.txt", 'a', buffering= 1) as err:
-                    err.write("IndexError: \n" + repr(e) + '\n\n')                
+                    err.write("IndexError: \n" + repr(e) + '\n\n')
                 return sorted(urls)
         elif Configure.OBTAIN_URL_STYLE == Configure.BY_RANDOM:
             count = len(urls)
             try:
+                #with open('urls.txt', 'w') as url_txt:
+                    #url_txt.write(repr(urls))
+                #return urls
                 return random.sample(urls, count // 10 + 1)
             except(ValueError) as e:
                 with open("error_info.txt", 'a', buffering= 1) as err:
-                    err.write("ValueError: \n" + repr(e) + '\n\n')                 
+                    err.write("ValueError: \n" + repr(e) + '\n\n')
                 return urls
         elif Configure.OBTAIN_URL_STYLE == Configure.BY_ORDER:
             count = len(urls)
-            try:    
+            try:
                 return urls[0:count // 10 + 1]
             except(IndexError) as e:
                 with open("error_info.txt", 'a', buffering= 1) as err:
-                    err.write("IndexError: \n" + repr(e) + '\n\n')                  
+                    err.write("IndexError: \n" + repr(e) + '\n\n')
                 return urls
         
         
@@ -618,7 +622,7 @@ class DataExporter:
         self.tableName = 'urldata'
         self.databaseName = 'scraping'
         if self.write_mode == Configure.COOPERATION and self.output_style == Configure.MYSQL_MODE:
-            self.conn, self.cur = self._getMySQLConnection()                    
+            self.conn, self.cur = self._getMySQLConnection()
         
         if self.write_mode == Configure.INDEPENDENCE:  
             if Configure.OUTPUT_NAME_STYLE == Configure.USE_UUID:
@@ -628,7 +632,7 @@ class DataExporter:
             elif Configure.OUTPUT_NAME_STYLE == Configure.USE_DATETIME:
                 now = time.strftime("%Y-%m-%d_%H-%M-%S")
                 self.urldata_file_name = "URLDATA-" + now
-            elif Configure.OUTPUT_NAME_STYLE == Configure.USE_DOMAIN_NAME:     
+            elif Configure.OUTPUT_NAME_STYLE == Configure.USE_DOMAIN_NAME:
                 self.urldata_file_name = "URLDATA-" + str(urlparse(initial_seeds[0])[1])
         else:
             self.urldata_file_name = Configure.COMMON_URLDATA_FILENAME
@@ -648,7 +652,7 @@ class DataExporter:
             cur.execute("USE " + self.databaseName) 
         except(Exception) as e:
             with open("error_info.txt", 'a', buffering= 1) as err:
-                err.write("Error: _getMySQLConnection()\n" + repr(e) + '\n\n')            
+                err.write("Error: _getMySQLConnection()\n" + repr(e) + '\n\n')
             conn, cur = None, None
         return conn, cur
         
@@ -681,7 +685,7 @@ class DataExporter:
                 with open(running_log_path, "a+") as running_log:
                     running_log.write("\nThe number of urls exceeds limit of \
                     TOTAL_URL_LIMIT({0}).\n".format(Configure.TOTAL_URL_LIMIT))
-                    running_log.write(time.strftime("\nEnd time: %x %X\n\n"))            
+                    running_log.write(time.strftime("\nEnd time: %x %X\n\n"))
 
         
     #----------------------------------------------------------------------
@@ -736,7 +740,7 @@ class DataExporter:
                         writer.writerow((time.strftime("End time: %x %X"), "", ""))
             elif self.output_style == Configure.MYSQL_MODE:
                 self.cur.close()  #close cursor
-                self.conn.close() #close MySQL connection                
+                self.conn.close() #close MySQL connection
         else:
             pass
                     
@@ -792,13 +796,13 @@ class DataExporter:
         except(IOError) as e:
             print(Fore.LIGHTRED_EX + "Can not open or create a urldata file!")
             with open("error_info.txt", 'a', buffering= 1) as err:
-                err.write("IOError: _toTXT()\n" + repr(e) + '\n\n')             
+                err.write("IOError: _toTXT()\n" + repr(e) + '\n\n')
         except(UnicodeEncodeError) as e:
             with open("error_info.txt", 'a', buffering= 1) as err:
                 err.write("UnicodeEncodeError: _toTXT()\n" + repr(e) + '\n\n')
         else:
             data_txt.flush()
-            data_txt.close()            
+            data_txt.close()
         finally:
             self.output_position = seeds_sum + 1
             self.seed_infos.clear()
@@ -824,15 +828,15 @@ class DataExporter:
         except(IOError) as e:
             print(Fore.LIGHTRED_EX + "Can not open or create urldata file!")
             with open("error_info.txt", 'a', buffering= 1) as err:
-                err.write("IOError: _toTXT()\n" + repr(e) + '\n\n')             
+                err.write("IOError: _toTXT()\n" + repr(e) + '\n\n')
         except(UnicodeEncodeError) as e:
             with open("error_info.txt", 'a', buffering= 1) as err:
                 err.write("UnicodeEncodeError: _toTXT()\n" + repr(e) + '\n\n')
         else:
             data_txt.flush()
-            data_txt.close()            
+            data_txt.close()
         finally:
-            self.seed_infos.clear()            
+            self.seed_infos.clear()
     
     
             
@@ -843,7 +847,7 @@ class DataExporter:
             data_csv = open(self.urldata_file_name + '.csv', 'a', buffering= 1,encoding= 'GB18030')
         except(IOError) as e:
             with open("error_info.txt", 'a', buffering= 1, encoding= 'GB18030') as err:
-                err.write("IOError: _toCSV()\n" + repr(e) + '\n\n')            
+                err.write("IOError: _toCSV()\n" + repr(e) + '\n\n')
             print(Fore.LIGHTRED_EX + "Can't not open or create data.csv")
         try:
             writer = csv.writer(data_csv)
@@ -860,7 +864,7 @@ class DataExporter:
                 err.write("Error: _toCSV()\n" + repr(e) + '\n\n')
         else:
             data_csv.flush()
-            data_csv.close()            
+            data_csv.close()
         finally:
             self.output_position = seeds_sum + 1
             self.seed_infos.clear()
@@ -879,7 +883,7 @@ class DataExporter:
                     continue
                 self.cur.execute("INSERT INTO " + self.tableName + \
                     "(title,url) VALUES (\"%s\",\"%s\")",(seed_info[1], seed_info[0]))
-                self.cur.connection.commit()           
+                self.cur.connection.commit()
         except(pymysql.err.InternalError) as e:
             with open("error_info.txt", 'a', buffering= 1, encoding= 'GB18030') as err:
                 err.write("pymysql.err.InternalError: _toMySQL()\n" + repr(e) + '\n\n')
@@ -942,7 +946,7 @@ class Launcher:
             return False
         
     
-    #----------------------------------------------------------------------    
+    #----------------------------------------------------------------------
     def _supplementUrls(self, urls):
         """Supplement url which has no schema"""
         supplemented_urls = []
@@ -957,7 +961,7 @@ class Launcher:
         
 if __name__ == '__main__':
     init()  #Colorama init()
-    all_url_count = 0  #The number of urls which collected by all threads and 
+    all_url_count = 0  #The number of urls which collected by all threads and
     # will show in the title of CMD
     url_written_position = 1  #Record position for export url data when WRITE_MODE is COOPERATION
     all_url_set = set()  #Store all urls when WRITE_MODE is COOPERATION
