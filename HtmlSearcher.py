@@ -1,11 +1,11 @@
 #encoding:GBK
 
-#--------------------------#
-# VERSION = 0.873          #
-# AUTHOR: William Yang     #
-# EMAIL: 505741310@qq.com  #
-# WEIBO: weibo.com/yyb1105 #
-#--------------------------#
+##############################
+## VERSION = 0.873          ##
+## AUTHOR: William Yang     ##
+## EMAIL: 505741310@qq.com  ##
+## WEIBO: weibo.com/yyb1105 ##
+##############################
 
 import os
 import re
