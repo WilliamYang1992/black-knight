@@ -1,7 +1,7 @@
 #encoding:GBK
 
 ##############################
-## VERSION = 0.873          ##
+## VERSION = 0.878          ##
 ## AUTHOR: William Yang     ##
 ## EMAIL: 505741310@qq.com  ##
 ## WEIBO: weibo.com/yyb1105 ##
@@ -117,9 +117,10 @@ class Configure:
     #THREAD Setting
     SINGLE_URL_SEARCH_LIMIT = UNLIMITED
     TOTAL_URL_LIMIT = 5000
-    THREAD_LIMIT = 6
+    THREAD_LIMIT = 10
     OUTPUT_FREQUENCY = 50
     THREAD_WAIT = 0
+    USE_PHANTOMJS = False
     
     SEEDLIST = ["http://www.hao123.com",
                 "http://www.sina.com",
@@ -172,17 +173,7 @@ class Configure:
                  "www.gamersky.com",
                  "www.gamersky.com",
                  "www.gamersky.com",
-                 "www.gamersky.com",
-                 "www.gamersky.com",
-                 "www.gamersky.com",
-                 "www.gamersky.com",
-                 "www.gamersky.com",
-                 "www.gamersky.com",
-                 "www.gamersky.com",
-                 "www.gamersky.com",
-                 "www.gamersky.com",
-                 "www.gamersky.com",
-                 "www.gamersky.com",]
+                 "www.gamersky.com"]
     
     #----------------------------------------------------------------------
     def __init__(self):
@@ -209,24 +200,27 @@ class SeedsHolder():
         self.seeds.pop()
         
     #----------------------------------------------------------------------
-    def divideSeeds(self):
+    def divideSeeds(self, mode):
         """Divide seed from seeds into several groups"""
-        seedsPerGroup = math.floor(len(self.seeds) / Configure.THREAD_LIMIT)
-        #if number of seeds less than THREAD_LIMIT
-        if seedsPerGroup == 0:seedsPerGroup = 1
-        seedsGroups = []
-        while not self.seeds == []:
-            tmp = []
-            if len(self.seeds) < seedsPerGroup:
-                for i in range(len(self.seeds)):
-                    seedsGroups[i].append(self.seeds[i])
-                self.seeds.clear()
-            else:
-                for i in range(seedsPerGroup):      
-                    tmp.append(self.seeds[0])
-                    self.seeds.pop(0)
-                seedsGroups.append(tmp)
-        return seedsGroups
+        if mode == Configure.INDEPENDENCE:
+            seedsPerGroup = math.floor(len(self.seeds) / Configure.THREAD_LIMIT)
+            #if number of seeds less than THREAD_LIMIT
+            if seedsPerGroup == 0:seedsPerGroup = 1
+            seedsGroups = []
+            while not self.seeds == []:
+                tmp = []
+                if len(self.seeds) < seedsPerGroup:
+                    for i in range(len(self.seeds)):
+                        seedsGroups[i].append(self.seeds[i])
+                    self.seeds.clear()
+                else:
+                    for i in range(seedsPerGroup):      
+                        tmp.append(self.seeds[0])
+                        self.seeds.pop(0)
+                    seedsGroups.append(tmp)
+            return seedsGroups
+        elif mode == Configure.COOPERATION:
+            return self.seeds
             
         
        
@@ -248,18 +242,27 @@ class ThreadController(Thread):
     #----------------------------------------------------------------------    
     def generateThreads(self):
         """Generate some threads which depend on THREAD_LIMIT and the number of initial seeds"""
+        global all_url_seeds
         #threading.stack_size(8388608)  #Ajust thread stack size
         seedsHolder =  SeedsHolder(self.seedList[:])
         print(Fore.LIGHTYELLOW_EX + "Start searching" + "\n")
         print(Fore.LIGHTYELLOW_EX + "Threads: " + str(Configure.THREAD_LIMIT) + "\n")
-        for group in seedsHolder.divideSeeds():
-            print(Fore.LIGHTYELLOW_EX + repr(group))
-            searcher = Searcher(group)
-            searcher.start()
-            #searcher.join()
-        print('\n')
-        if Configure.WRITE_MODE == Configure.COOPERATION:
+        if Configure.WRITE_MODE == Configure.INDEPENDENCE:
+            for group in seedsHolder.divideSeeds(Configure.INDEPENDENCE):
+                print(Fore.LIGHTYELLOW_EX + repr(group))
+                searcher = Searcher(group)
+                searcher.start()
+                #searcher.join()
+            print('\n')
+        elif Configure.WRITE_MODE == Configure.COOPERATION:
+            all_url_seeds = seedsHolder.divideSeeds(Configure.COOPERATION)
             DataExporter.exportRunningLog(self.seedList, 'start', None)
+            for i in all_url_seeds:
+                searcher = Searcher([])
+                searcher.start()
+            for i in self.seedList:
+                print(i)
+            print('\n')
         
         
         
@@ -290,9 +293,10 @@ class Searcher(ThreadController):
         
     #----------------------------------------------------------------------
     def run(self):
-        """Overwrite run() method. It is main flow os every threads"""
+        """Overwrite run() method. It is main flow os each threads"""
         global all_url_count
         global all_url_set
+        global all_url_seeds
         
         seeds_sum = 0     #total valid seed index
         seed_current = 0  #current seed index
@@ -302,25 +306,41 @@ class Searcher(ThreadController):
         exporter = DataExporter(self.seeds)
         exporter.initial_action()
         threadEvent = Event()
-        urlfilter = UrlFilter(self.seeds[0])
-           
-        #add initial seeds to seed_set
-        for i in range(len(self.seeds)):          
-            seed_set.add(self.seeds[i])        
+        mutex = threading.Lock()
         
+        if self.write_mode == Configure.INDEPENDENCE:
+            urlfilter = UrlFilter(self.seeds[0])
+            #add initial seeds to seed_set
+            for i in range(len(self.seeds)):          
+                seed_set.add(self.seeds[i])             
+        elif self.write_mode == Configure.COOPERATION:
+            urlfilter = UrlFilter(all_url_seeds[0])
+           
+ 
         while not self.thread_stop:
             while seeds_sum < self.total_url_limit:
                 threadEvent.wait(Configure.THREAD_WAIT)
-                if seed_current < len(self.seeds):
+                if seed_current < len(self.seeds) or len(all_url_seeds) != 0:
                     threadEvent.wait(self.thread_wait)
                     #tag_A
                     try:
-                        if seed_current == 0:
-                            req = requests.get(self.seeds[seed_current],
-                                timeout = 120)
-                        else:
-                            req = requests.get(self.seeds[seed_current],
-                                timeout = 10)
+                        if self.write_mode == Configure.INDEPENDENCE:
+                            if (seed_current == 0):
+                                req = requests.get(self.seeds[seed_current],
+                                    timeout = 120)
+                            else:
+                                req = requests.get(self.seeds[seed_current],
+                                    timeout = 10)
+                        elif self.write_mode == Configure.COOPERATION:
+                            try:
+                                mutex.acquire()
+                                seed_from_all_url_list = all_url_seeds.pop(0)
+                                mutex.release()
+                                req = requests.get(seed_from_all_url_list)
+                            except(Exception) as e:
+                                with open("error_info.txt", 'a', buffering= 1) as err:
+                                    err.write("Error: run() requests\n" + repr(e) + '\n\n')
+                                continue
                         if req.status_code is 200 :
                             #lowest speed
                             #soup = BeautifulSoup(req.content, "html5lib")
@@ -329,18 +349,23 @@ class Searcher(ThreadController):
                             #midium speed
                             soup = BeautifulSoup(req.content, "html.parser")
                         else:
-                            seed_current += 1
+                            if self.write_mode == Configure.INDEPENDENCE:
+                                seed_current += 1
                             continue
                     except(ConnectionError):
-                        seed_current += 1
-                        #when a connection error occurs, append current seed to tail of seeds list
-                        self.seeds.append(self.seeds[seed_current])
+                        if self.write_mode == Configure.INDEPENDENCE:
+                            seed_current += 1
+                            #when a connection error occurs, append current seed to tail of seeds list
+                            self.seeds.append(self.seeds[seed_current])
+                        elif self.write_mode == Configure.COOPERATION:
+                            all_url_seeds.append(seed_from_all_url_list)
                         continue
                     except(Exception) as e:
                         print(Fore.LIGHTRED_EX + repr(e))
                         with open("error_info.txt", 'a', buffering= 1) as err:
                             err.write("Error: run() tag_A\n" + repr(e) + '\n\n')
-                        seed_current += 1
+                        if self.write_mode == Configure.INDEPENDENCE:
+                            seed_current += 1
                         continue
                     
                     #predefine seed_title and seed_url in case of exception
@@ -348,7 +373,11 @@ class Searcher(ThreadController):
                     seed_url = "None"
                         
                     try:
-                        seed_url= self.seeds[seed_current]
+                        
+                        if self.write_mode == Configure.INDEPENDENCE:  
+                            seed_url= self.seeds[seed_current]
+                        else:
+                            seed_url = seed_from_all_url_list
                         seed_title = soup.title.string
                         #soup.title.string.encode('GBK', 'ignore').decode('GBK', 'ignore')
                         #seed_title = soup.title.string.encode('GB2312', 'ignore').decode('GB18030', 'ignore')
@@ -366,14 +395,16 @@ class Searcher(ThreadController):
                         #print('Url: ' +  seed_url+ '\n')
                     except(AttributeError) as e:
                         print(Fore.LIGHTRED_EX + "AttributeError\n")
-                        seed_current += 1
+                        if self.write_mode == Configure.INDEPENDENCE:
+                            seed_current += 1
                         with open("error_info.txt", 'a', buffering= 1, encoding= 'GB18030') as err:
                             err.write("AttributeError: run()\n" + repr(e) + "\n" + "Url: "
                                 + seed_url + '\n\n')
                         continue
                     except(UnicodeEncodeError) as e:
                         print(Fore.LIGHTRED_EX + "UnicodeError\n")
-                        seed_current += 1
+                        if self.write_mode == Configure.INDEPENDENCE:
+                            seed_current += 1
                         #seed_title = soup.title.string.decode('GB2312', 'ignore')
                         #seed_title = soup.title.string.decode('GB2312', 'replace').encode('GBK', 'replace')
                         with open("error_info.txt", 'a', buffering= 1, encoding= 'GB18030') as err:
@@ -383,13 +414,13 @@ class Searcher(ThreadController):
                     #some url doesn't has title
                     except(TypeError) as e:
                         print(Fore.LIGHTRED_EX + "TypeError\n")
-                        seed_current += 1
+                        if self.write_mode == Configure.INDEPENDENCE:
+                            seed_current += 1
                         with open("error_info.txt", 'a', buffering= 1, encoding= 'GB18030') as err:
                             err.write("TypeError: run()\n" + repr(e) + "\n" + "Url: "
                                 + seed_url + '\n\n')
                         continue
-                                                
-                        
+                                                                      
                         
                     #Find all links in current url
                     try:
@@ -400,7 +431,8 @@ class Searcher(ThreadController):
                     except(Exception) as e:
                         with open("error_info.txt", 'a', buffering= 1) as err:
                             err.write("Error: run()\n" + repr(e) + '\n\n')
-                        seed_current += 1
+                        if self.write_mode == Configure.INDEPENDENCE:
+                            seed_current += 1
                         continue
                     
                     #Add data to dict
@@ -412,8 +444,9 @@ class Searcher(ThreadController):
                     elif Configure.COLLECT_MODE == Configure.JPG_DATA:
                         #Collect jpgs from all of links and exports to specific path
                         exporter.export_jpgdata()
+                        
                     #Validate and reform url which is incorrect format
-                    checked_urls = validator.CheckUrls(self.seeds[seed_current], urls)
+                    checked_urls = validator.CheckUrls(seed_url, urls)
                     #Filter url with specific conditions
                     filtered_urls = urlfilter.filters(checked_urls)
                     
@@ -430,25 +463,28 @@ class Searcher(ThreadController):
                             else:
                                 for seed in filtered_urls:
                                     if seed not in all_url_set:
-                                        self.seeds.append(seed)
+                                        all_url_seeds.append(seed)
                                         all_url_set.add(seed)
-                    else:
+                    else:  #Use database to filtered duplicated urls
                         if not len(filtered_urls) == 0:
                             if self.write_mode == Configure.INDEPENDENCE:
                                 pass
-                            else:
+                            elif self.write_mode == Configure.COOPERATION:
                                 for seed in filtered_urls:
                                     select_stmt = "SELECT * from " + self.tableName + \
                                         " WHERE url = \"'" + seed + "'\""
                                     if self.cur.execute(select_stmt):
                                         #print(Fore.LIGHTWHITE_EX + 'Url already exist: ' + seed + '\n')
                                         continue
-                                    self.seeds.append(seed)
+                                    if seed not in all_url_set:
+                                        all_url_seeds.append(seed)
+                                        all_url_set.add(seed)
                                     
-                                          
+                    #Output the number of urls that have been found by all threads                    
                     all_url_count += 1
                     os.system("Title " + str(all_url_count))
-                    seed_current += 1
+                    if self.write_mode == Configure.INDEPENDENCE:
+                        seed_current += 1                      
                     seeds_sum += 1
                                        
                 else:
@@ -462,10 +498,12 @@ class Searcher(ThreadController):
                     seed_set.clear()
                     self.thread_stop = True
                     break
-            if not exporter.isFinished:
+            #If in case of exceeds limit of urls rather not found more urls
+            if not exporter.isFinished:  
+                
                 if self.write_mode == Configure.INDEPENDENCE:
                     exporter.finish_action(exporter.EXCEED_LIMIT)
-                else:
+                elif self.write_mode == Configure.COOPERATION:
                     DataExporter.exportRunningLog(None, 'end',
                         DataExporter.EXCEED_LIMIT)
                 seed_set.clear()
@@ -606,6 +644,7 @@ class DataExporter:
     
     NO_MORE_SEEDS = 0
     EXCEED_LIMIT = 1
+    all_finished = False
 
     #----------------------------------------------------------------------
     def __init__(self, initial_seeds):
@@ -677,15 +716,17 @@ class DataExporter:
                 running_log.write('\n')
                 running_log.write(time.strftime("Start time: %x %X\n\n"))
         elif status == 'end' or status == 0:
-            if result_code == DataExporter.NO_MORE_SEEDS:
-                with open(running_log_path, "a+") as running_log:
-                    running_log.write("\nNo more urls can be found in given seeds.\n")
-                    running_log.write(time.strftime("\nEnd time: %x %X\n\n"))
-            elif result_code == DataExporter.EXCEED_LIMIT:
-                with open(running_log_path, "a+") as running_log:
-                    running_log.write("\nThe number of urls exceeds limit of \
-                    TOTAL_URL_LIMIT({0}).\n".format(Configure.TOTAL_URL_LIMIT))
-                    running_log.write(time.strftime("\nEnd time: %x %X\n\n"))
+            if not DataExporter.all_finished:
+                DataExporter.all_finished = True
+                if result_code == DataExporter.NO_MORE_SEEDS:
+                    with open(running_log_path, "a+") as running_log:
+                        running_log.write("\nNo more urls can be found in given seeds.\n")
+                        running_log.write(time.strftime("\nEnd time: %x %X\n\n"))
+                elif result_code == DataExporter.EXCEED_LIMIT:
+                    with open(running_log_path, "a+") as running_log:
+                        running_log.write("\nThe number of urls exceeds limit of \
+                        TOTAL_URL_LIMIT({0}).\n".format(Configure.TOTAL_URL_LIMIT))
+                        running_log.write(time.strftime("\nEnd time: %x %X\n\n"))
 
         
     #----------------------------------------------------------------------
@@ -929,6 +970,7 @@ class Launcher:
                         seedList.append(url)
                     else:
                         seedList.append("http://" + url)
+                    seedList = self._copySeed(seedList)
                 else:
                     seedList = self._supplementUrls(Configure.SEEDLIST8)
                 ThreadController(seedList).generateThreads()
@@ -955,6 +997,19 @@ class Launcher:
                 url = "http://" + url
             supplemented_urls.append(url)
         return supplemented_urls
+    
+    
+    #----------------------------------------------------------------------
+    def _copySeed(self, seedList):
+        """Copy a seed and make the same number with THREAD_LIMIT"""
+        tmp = seedList[:]
+        if not len(tmp) >= Configure.THREAD_LIMIT:
+            while len(tmp) < Configure.THREAD_LIMIT:
+                tmp = tmp + seedList[:]
+            if not len(tmp) == Configure.THREAD_LIMIT:
+                for i in range(len(tmp) - Configure.THREAD_LIMIT):tmp.pop()
+        return tmp
+        
 
    
    
@@ -963,6 +1018,7 @@ if __name__ == '__main__':
     init()  #Colorama init()
     all_url_count = 0  #The number of urls which collected by all threads and
     # will show in the title of CMD
+    all_url_seeds = []  #The list that store all seeds for each thread to get and scrap it
     url_written_position = 1  #Record position for export url data when WRITE_MODE is COOPERATION
     all_url_set = set()  #Store all urls when WRITE_MODE is COOPERATION
     Launcher().start()
