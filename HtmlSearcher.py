@@ -435,6 +435,7 @@ class Searcher(ThreadController):
                             seed_current += 1
                         continue
                     
+                                 
                     #Add data to dict
                     exporter.addData(seed_url, seed_title)
                     
@@ -556,6 +557,9 @@ class UrlValidator:
                         else:
                             new_href = url + '/' + href
                         urls.append(new_href)
+
+        #with open('urls.txt', 'w') as url_txt:
+            #url_txt.write(repr(urls))
         if Configure.OBTAIN_URL_STYLE == Configure.BY_SORTED:
             count = len(urls)
             try:
@@ -567,9 +571,6 @@ class UrlValidator:
         elif Configure.OBTAIN_URL_STYLE == Configure.BY_RANDOM:
             count = len(urls)
             try:
-                #with open('urls.txt', 'w') as url_txt:
-                    #url_txt.write(repr(urls))
-                #return urls
                 return random.sample(urls, count // 10 + 1)
             except(ValueError) as e:
                 with open("error_info.txt", 'a', buffering= 1) as err:
@@ -966,7 +967,9 @@ class Launcher:
                 url = input("Please input a valid url, "
                     "leave it blank with default value:\n")
                 if not url == "":
-                    if url.startswith('http://'):
+                    if url == "random" or url == "RANDOM":
+                        seedList = self._randomSeeds()
+                    elif url.startswith('http://'):
                         seedList.append(url)
                     else:
                         seedList.append("http://" + url)
@@ -1009,6 +1012,32 @@ class Launcher:
             if not len(tmp) == Configure.THREAD_LIMIT:
                 for i in range(len(tmp) - Configure.THREAD_LIMIT):tmp.pop()
         return tmp
+    
+    
+    #----------------------------------------------------------------------
+    def _randomSeeds(self):
+        seedList = []
+        try:
+            conn = pymysql.connect(host= '127.0.0.1', user = 'root', password = '3911965',
+                database = 'mysql', port = 3306, charset = 'utf8mb4')
+            cur = conn.cursor()
+            cur.execute("USE scraping")
+            select_stmt = "SELECT MAX(ID) FROM urldata"
+            cur.execute(select_stmt)
+            max_id = int(cur.fetchone()[0])
+            for i in range(Configure.THREAD_LIMIT):
+                seed_id = random.randint(1, max_id)
+                print(seed_id)
+                select_stmt = "SELECT * FROM urldata WHERE id = " + str(seed_id)
+                cur.execute(select_stmt)
+                seed = str(cur.fetchone()[2].strip('\''))
+                seedList.append(seed)
+        except(Exception) as e:
+            with open("error_info.txt", 'a', buffering= 1) as err:
+                err.write("Error: _randomSeeds()\n" + repr(e) + '\n\n')
+            conn, cur = None, None
+        return seedList
+        
         
 
    
