@@ -121,6 +121,8 @@ class Configure:
     OUTPUT_FREQUENCY = 50
     THREAD_WAIT = 0
     USE_PHANTOMJS = False
+    SCRAP_AT_ALL = True
+    SCRAP_AT_ALL_RECURSION = 500
     
     SEEDLIST = ["http://www.hao123.com",
                 "http://www.sina.com",
@@ -394,7 +396,8 @@ class Searcher(ThreadController):
                         #print('Title: ' + seed_title)
                         #print('Url: ' +  seed_url+ '\n')
                     except(AttributeError) as e:
-                        print(Fore.LIGHTRED_EX + "AttributeError\n")
+                        print(Fore.LIGHTRED_EX + "AttributeError")
+                        print(Fore.LIGHTRED_EX + seed_url + '\n')
                         if self.write_mode == Configure.INDEPENDENCE:
                             seed_current += 1
                         with open("error_info.txt", 'a', buffering= 1, encoding= 'GB18030') as err:
@@ -483,12 +486,18 @@ class Searcher(ThreadController):
                                     
                     #Output the number of urls that have been found by all threads                    
                     all_url_count += 1
-                    os.system("Title " + str(all_url_count))
+                    os.system("Title Count:" + str(all_url_count) + '   Recursion:' + str(Launcher.recursion))
                     if self.write_mode == Configure.INDEPENDENCE:
                         seed_current += 1                      
                     seeds_sum += 1
                                        
                 else:
+                    if Configure.SCRAP_AT_ALL:
+                        if not Launcher.re_collect and \
+                           Launcher.recursion <= Configure.SCRAP_AT_ALL_RECURSION:
+                            Launcher.re_collect = True
+                            all_url_seeds = Launcher.randomSeeds()
+                        continue
                     exporter.isFinished = True
                     exporter.export_titledata(seeds_sum, isFinished= True)
                     if self.write_mode == Configure.INDEPENDENCE:
@@ -951,6 +960,8 @@ class DataExporter:
 ########################################################################
 class Launcher:
     """Launch this app in CMD, GUI or WEB according to START_MODE"""
+    re_collect = False  #A sign to decide whether re-collect initial seeds
+    recursion = 0
 
     #----------------------------------------------------------------------
     def __init__(self):
@@ -968,7 +979,7 @@ class Launcher:
                     "leave it blank with default value:\n")
                 if not url == "":
                     if url == "random" or url == "RANDOM":
-                        seedList = self._randomSeeds()
+                        seedList = Launcher.randomSeeds('start')
                     elif url.startswith('http://'):
                         seedList.append(url)
                     else:
@@ -1015,7 +1026,8 @@ class Launcher:
     
     
     #----------------------------------------------------------------------
-    def _randomSeeds(self):
+    @staticmethod
+    def randomSeeds(mode = None):
         seedList = []
         try:
             conn = pymysql.connect(host= '127.0.0.1', user = 'root', password = '3911965',
@@ -1032,10 +1044,28 @@ class Launcher:
                 cur.execute(select_stmt)
                 seed = str(cur.fetchone()[2].strip('\''))
                 seedList.append(seed)
+            #for i in range(Configure.THREAD_LIMIT):
+                #select_stmt = "SELECT * FROM urldata WHERE scraped=0"
+                #cur.execute(select_stmt)
+                #result = cur.fetchone()
+                #print(result[0])
+                #seed = str(result[2].strip('\''))
+                #seedList.append(seed)
+                #update_stmt = "UPDATE urldata SET scraped = 1 WHERE id = " + \
+                    #result[0]
+                #print(update_stmt)
+                #print('######################################')
+                #cur.execute(update_stmt)
+                #conn.commit()
         except(Exception) as e:
             with open("error_info.txt", 'a', buffering= 1) as err:
                 err.write("Error: _randomSeeds()\n" + repr(e) + '\n\n')
-            conn, cur = None, None
+        finally:
+            cur.close()
+            conn.close()
+        if not mode == "start":   
+            Launcher.re_collect = False
+            Launcher.recursion += 1
         return seedList
         
         
